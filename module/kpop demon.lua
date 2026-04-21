@@ -241,6 +241,34 @@ local function raceLobbyLabel(raceOrFolder)
 	return id
 end
 
+local function displayNameForRaceId(id)
+	if type(id) ~= "string" then
+		return tostring(id)
+	end
+	local raw = raceDisplayNames[id]
+	if type(raw) == "string" and raw ~= "" then
+		return raw
+	end
+	return id
+end
+
+local function buildRaceDropdownLists(raceIds)
+	local labels = {}
+	local labelToId = {}
+	local used = {}
+	for _, rid in ipairs(raceIds) do
+		local base = displayNameForRaceId(rid)
+		local label = base
+		if used[label] then
+			label = base .. " (" .. rid .. ")"
+		end
+		used[label] = true
+		labelToId[label] = rid
+		table.insert(labels, label)
+	end
+	return labels, labelToId
+end
+
 local function findTuneModule(carModel)
 	if not carModel then
 		return nil
@@ -902,6 +930,14 @@ local function buildLibraryUi()
 		end
 	end
 	automationState.selectedRaceId = defaultRace
+	local raceLabels, raceLabelToId = buildRaceDropdownLists(raceIds)
+	local defaultLabel = raceLabels[1]
+	for i, id in ipairs(raceIds) do
+		if id == defaultRace then
+			defaultLabel = raceLabels[i]
+			break
+		end
+	end
 
 	Window:Category("Overview")
 	local Overview = Window:Page({
@@ -1051,14 +1087,18 @@ local function buildLibraryUi()
 	QueueSec:Dropdown({
 		Name = "Race to run",
 		Flag = "KpopRacePick",
-		Default = defaultRace,
-		Items = raceIds,
+		Default = defaultLabel,
+		Items = raceLabels,
 		Multi = false,
 		Callback = function(v)
+			local rid
 			if type(v) == "string" then
-				automationState.selectedRaceId = v
+				rid = raceLabelToId[v]
 			elseif type(v) == "table" and v[1] then
-				automationState.selectedRaceId = v[1]
+				rid = raceLabelToId[v[1]]
+			end
+			if rid then
+				automationState.selectedRaceId = rid
 			end
 		end,
 	})
