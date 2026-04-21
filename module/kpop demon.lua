@@ -426,33 +426,12 @@ local function readTuneSnapshot(carModel)
 	}
 end
 
-local function findRacerEntryInFolder(racersFolder)
-	if not racersFolder then
-		return nil
-	end
-	local want = localPlayer.Name
-	local direct = racersFolder:FindFirstChild(want)
-	if direct then
-		return direct
-	end
-	local wl = string.lower(want)
-	for _, ch in racersFolder:GetChildren() do
-		if ch:IsA("ObjectValue") and ch.Value == localPlayer then
-			return ch
-		end
-		if string.lower(ch.Name) == wl then
-			return ch
-		end
-	end
-	return nil
-end
-
 local function racerEntryForLocalPlayer()
 	local race = ClientRace.ClientRace
-	if not race or not race.Racers then
+	if not race then
 		return nil, nil
 	end
-	local entry = findRacerEntryInFolder(race.Racers)
+	local entry = race.Racers:FindFirstChild(localPlayer.Name)
 	return race, entry
 end
 
@@ -509,7 +488,7 @@ end
 local function inDriveSeatForRace()
 	local hum = localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid")
 	local s = hum and hum.SeatPart
-	return s and s:IsA("VehicleSeat")
+	return s and s:IsA("VehicleSeat") and s.Name == "DriveSeat"
 end
 
 local function tryAutoSoloQueue()
@@ -822,26 +801,6 @@ local function nudgeSpeedMultiplier(delta)
 	setSpeedMultiplier(speedMultiplier + delta)
 end
 
-local function deferCheckpointSnapAfterServer(capturedCf)
-	task.defer(function()
-		local cf = capturedCf
-		for _ = 1, 16 do
-			local race, entry = racerEntryForLocalPlayer()
-			if race and entry then
-				if not cf then
-					cf = getCheckpointTargetCFrame(race, entry)
-				end
-				if cf then
-					chainHoldTargetCf = cf
-					snapLocalVehicleToTargetCFrame(cf)
-					return
-				end
-			end
-			task.wait(0.05)
-		end
-	end)
-end
-
 local function tryTeleportCheckpointManual()
 	local race, entry = racerEntryForLocalPlayer()
 	if not race or not entry then
@@ -858,6 +817,9 @@ local function tryTeleportCheckpointManual()
 		return
 	end
 	local targetCf = getCheckpointTargetCFrame(race, entry)
+	if not targetCf then
+		return
+	end
 	local now = os.clock()
 	if now - lastTeleportClock < Config.TeleportCooldownSeconds then
 		return
@@ -865,7 +827,10 @@ local function tryTeleportCheckpointManual()
 	lastTeleportClock = now
 	lastChainTeleportClock = now
 	Network.FireServer("TeleportCheckpoint")
-	deferCheckpointSnapAfterServer(targetCf)
+	task.defer(function()
+		chainHoldTargetCf = targetCf
+		snapLocalVehicleToTargetCFrame(targetCf)
+	end)
 end
 
 local function checkpointChainIntervalSeconds()
@@ -901,6 +866,9 @@ local function tryTeleportCheckpointChain()
 		return
 	end
 	local targetCf = getCheckpointTargetCFrame(race, entry)
+	if not targetCf then
+		return
+	end
 	local now = os.clock()
 	local gap = checkpointChainIntervalSeconds()
 	if (now - lastChainTeleportClock) < gap then
@@ -909,7 +877,10 @@ local function tryTeleportCheckpointChain()
 	lastChainTeleportClock = now
 	lastTeleportClock = now
 	Network.FireServer("TeleportCheckpoint")
-	deferCheckpointSnapAfterServer(targetCf)
+	task.defer(function()
+		chainHoldTargetCf = targetCf
+		snapLocalVehicleToTargetCFrame(targetCf)
+	end)
 end
 
 local function driveSeatCFrame(car)
@@ -1153,7 +1124,7 @@ local function holdCheckpointSnapIfChaining()
 		chainHoldTargetCf = nil
 		return
 	end
-	local holdCf = chainHoldTargetCf
+	local holdCf = chainHoldTargetCf or getCheckpointTargetCFrame(race, entry)
 	if not holdCf then
 		return
 	end
