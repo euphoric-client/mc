@@ -569,8 +569,8 @@ local function tryAutoQueueWithPlayers()
 	if not automationAllowed() then
 		return
 	end
-	-- If already in a race, do nothing (race started or still racing)
-	if raceStateIsRacing(ClientRace.ClientRace) then
+	-- If already in a race or lobby, do nothing
+	if raceStateIsRacing(ClientRace.ClientRace) or Races.GetRaceFromPlayer(localPlayer) then
 		return
 	end
 	local now = os.clock()
@@ -702,6 +702,35 @@ local function findCheckpointInstanceForNext(race, entry)
 	return nil
 end
 
+local function findCheckpointInstanceForCurrent(race, entry)
+	if not race or not entry then
+		return nil
+	end
+	local folder = race.Folder
+	if not folder then
+		return nil
+	end
+	local holder = folder:FindFirstChild("Checkpoints")
+	if not holder then
+		return nil
+	end
+	local cur = tonumber(entry:GetAttribute("Checkpoint")) or 0
+	local function matchesNum(ch)
+		return checkpointIndexFromInstanceName(ch.Name) == cur
+	end
+	for _, ch in holder:GetChildren() do
+		if matchesNum(ch) then
+			return ch
+		end
+	end
+	for _, ch in holder:GetDescendants() do
+		if matchesNum(ch) then
+			return ch
+		end
+	end
+	return nil
+end
+
 local function checkpointTargetCFrameFromInstance(inst)
 	if not inst then
 		return nil
@@ -745,14 +774,7 @@ local function getCheckpointWorldPosition(race, entry)
 	return cf and cf.Position or nil
 end
 
-local function snapLocalVehicleToNextCheckpoint(race, entry)
-	if Config.UseClientCheckpointSnap == false then
-		return
-	end
-	local targetCf = getCheckpointTargetCFrame(race, entry)
-	if not targetCf then
-		return
-	end
+local function doSnapVehicleToCFrame(targetCf)
 	local car, seat = getLocalPlayerVehicleSeat()
 	if not car or not seat then
 		return
@@ -781,6 +803,27 @@ local function snapLocalVehicleToNextCheckpoint(race, entry)
 				d.AssemblyAngularVelocity = Vector3.zero
 			end
 		end
+	end
+end
+
+local function snapLocalVehicleToNextCheckpoint(race, entry)
+	if Config.UseClientCheckpointSnap == false then
+		return
+	end
+	local targetCf = getCheckpointTargetCFrame(race, entry)
+	if targetCf then
+		doSnapVehicleToCFrame(targetCf)
+	end
+end
+
+local function snapLocalVehicleToCurrentCheckpoint(race, entry)
+	if Config.UseClientCheckpointSnap == false then
+		return
+	end
+	local inst = findCheckpointInstanceForCurrent(race, entry)
+	local targetCf = checkpointTargetCFrameFromInstance(inst)
+	if targetCf then
+		doSnapVehicleToCFrame(targetCf)
 	end
 end
 
@@ -1161,14 +1204,14 @@ local function holdCheckpointSnapIfChaining()
 	if not race or not entry or not raceStateIsRacing(race) then
 		return
 	end
-	if not getCheckpointTargetCFrame(race, entry) then
-		return
-	end
 	local gap = checkpointChainGapSeconds()
 	if gap <= 0 then
 		return
 	end
-	if os.clock() - lastChainTeleportClock < gap then
+	
+	if chainFinishWaitUntil ~= nil then
+		snapLocalVehicleToCurrentCheckpoint(race, entry)
+	elseif os.clock() - lastChainTeleportClock < gap then
 		snapLocalVehicleToNextCheckpoint(race, entry)
 	end
 end
