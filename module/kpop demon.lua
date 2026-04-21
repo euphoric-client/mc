@@ -113,6 +113,8 @@ local localPlayer = Players.LocalPlayer
 local labels = {}
 local lastTeleportClock = 0
 local lastChainTeleportClock = 0
+local lastChainRaceAnchor = nil
+local lastHoldResnapClock = 0
 local speedMultiplier = Config.SpeedMultiplierDefault
 local steeringSensitivity = Config.SteeringSensitivityDefault
 local lastSoloQueueClock = 0
@@ -740,19 +742,27 @@ end
 
 local function checkpointChainGapSeconds()
 	local cd = type(Config.TeleportCooldownSeconds) == "number" and Config.TeleportCooldownSeconds or 0.5
-	local rate = type(Config.TeleportEverySeconds) == "number" and Config.TeleportEverySeconds > 0
-		and Config.TeleportEverySeconds
-		or Config.TeleportChainInterval
-	return math.max(cd, rate)
+	local rate = 2.5
+	if type(Config.TeleportEverySeconds) == "number" and Config.TeleportEverySeconds > 0 then
+		rate = Config.TeleportEverySeconds
+	elseif type(Config.TeleportChainInterval) == "number" and Config.TeleportChainInterval > 0 then
+		rate = Config.TeleportChainInterval
+	end
+	return math.max(0.05, cd, rate)
 end
 
 local function tryTeleportCheckpointChain()
 	local race, entry = racerEntryForLocalPlayer()
 	if not race or not entry then
+		lastChainRaceAnchor = nil
 		return
 	end
-	if not raceStateIsRacing(race) then
+	local anchor = race.Folder
+	if anchor ~= lastChainRaceAnchor then
+		lastChainRaceAnchor = anchor
 		lastChainTeleportClock = -1e9
+	end
+	if not raceStateIsRacing(race) then
 		return
 	end
 	local car, seat = getLocalPlayerVehicleSeat()
@@ -761,7 +771,7 @@ local function tryTeleportCheckpointChain()
 	end
 	local now = os.clock()
 	local gap = checkpointChainGapSeconds()
-	if gap > 0 and (now - lastChainTeleportClock) < gap then
+	if (now - lastChainTeleportClock) < gap then
 		return
 	end
 	lastChainTeleportClock = now
@@ -1022,10 +1032,12 @@ local function holdCheckpointSnapIfChaining()
 		return
 	end
 	local gap = checkpointChainGapSeconds()
-	if gap <= 0 then
-		return
-	end
 	if os.clock() - lastChainTeleportClock < gap then
+		local now = os.clock()
+		if now - lastHoldResnapClock < 0.12 then
+			return
+		end
+		lastHoldResnapClock = now
 		snapLocalVehicleToNextCheckpoint(race, entry)
 	end
 end
@@ -1075,6 +1087,8 @@ local function kpopPerformUnload()
 	restoreCarNoclipBaselines()
 	clearVehicleTuneBinding()
 	releaseAllVirtualKeys()
+	lastChainRaceAnchor = nil
+	lastHoldResnapClock = 0
 	local win = mainWindow
 	mainWindow = nil
 	table.clear(labels)
