@@ -26,6 +26,7 @@ return {
 	AllowClientAutomation = true,
 	RequireStudioForAutomation = false,
 	TeleportChainInterval = 5.15,
+	CheckpointDwellSeconds = 3,
 	AutoDriveV1SteerPulse = 0.08,
 	AutoDriveV2SteerPulse = 0.04,
 	AutoDriveMinThrottleDistance = 40,
@@ -35,4 +36,6 @@ return {
 	CarFlySpeed = 160,
 	CarFlySpeedMin = 20,
 	CarFlySpeedMax = 500,
+	CarFlyVelocityCap = 8000,
+	TuneReapplyIntervalSeconds = 0.12,
 }

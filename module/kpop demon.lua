@@ -132,6 +132,7 @@ local automationState = {
 	carNoclip = false,
 	autoNoclipWhileRacing = true,
 	carFly = false,
+	checkpointGuidedFly = false,
 }
 local noclipBaselineByPart = {}
 local noclipBoundCar = nil
@@ -146,11 +147,15 @@ local POWER_KEYS = {
 	Horsepower = true,
 	E_Horsepower = true,
 	E_Torque = true,
+	Torque = true,
+	Engine_Horsepower = true,
 }
 local STEER_KEYS = {
 	SteerSpeed = true,
 	SteerRatio = true,
 	MinSteer = true,
+	MaxSteer = true,
+	SteerDecay = true,
 }
 
 local function automationAllowed()
@@ -527,23 +532,7 @@ local function checkpointIndexFromInstanceName(name)
 	return nil
 end
 
-local function partWorldPosForCheckpoint(inst)
-	if inst:IsA("BasePart") then
-		return inst.Position
-	end
-	if inst:IsA("Model") then
-		return inst:GetPivot().Position
-	end
-	if inst:IsA("Folder") then
-		local p = inst:FindFirstChildWhichIsA("BasePart", true)
-		if p then
-			return p.Position
-		end
-	end
-	return nil
-end
-
-local function getCheckpointWorldPosition(race, entry)
+local function findCheckpointInstanceForNext(race, entry)
 	if not race or not entry then
 		return nil
 	end
@@ -557,34 +546,71 @@ local function getCheckpointWorldPosition(race, entry)
 	end
 	local cur = tonumber(entry:GetAttribute("Checkpoint")) or 0
 	local nextNum = cur + 1
-	local function tryChild(ch)
-		local n = checkpointIndexFromInstanceName(ch.Name)
-		if n ~= nextNum then
-			return nil
-		end
-		return partWorldPosForCheckpoint(ch)
+	local function matches(ch)
+		return checkpointIndexFromInstanceName(ch.Name) == nextNum
 	end
 	for _, ch in holder:GetChildren() do
-		local p = tryChild(ch)
-		if p then
-			return p
+		if matches(ch) then
+			return ch
 		end
 	end
 	for _, ch in holder:GetDescendants() do
-		local p = tryChild(ch)
-		if p then
-			return p
+		if matches(ch) then
+			return ch
 		end
 	end
 	return nil
+end
+
+local function checkpointTargetCFrameFromInstance(inst)
+	if not inst then
+		return nil
+	end
+	if inst:IsA("BasePart") then
+		return inst.CFrame
+	end
+	if inst:IsA("Model") then
+		local ok, cf = pcall(function()
+			return inst:GetBoundingBox()
+		end)
+		if ok and cf then
+			return cf
+		end
+		return inst:GetPivot()
+	end
+	if inst:IsA("Folder") then
+		local sum = Vector3.zero
+		local n = 0
+		for _, d in inst:GetDescendants() do
+			if d:IsA("BasePart") then
+				sum += d.Position
+				n += 1
+			end
+		end
+		if n == 0 then
+			return nil
+		end
+		return CFrame.new(sum / n)
+	end
+	return nil
+end
+
+local function getCheckpointTargetCFrame(race, entry)
+	local inst = findCheckpointInstanceForNext(race, entry)
+	return checkpointTargetCFrameFromInstance(inst)
+end
+
+local function getCheckpointWorldPosition(race, entry)
+	local cf = getCheckpointTargetCFrame(race, entry)
+	return cf and cf.Position or nil
 end
 
 local function snapLocalVehicleToNextCheckpoint(race, entry)
 	if Config.UseClientCheckpointSnap == false then
 		return
 	end
-	local targetPos = getCheckpointWorldPosition(race, entry)
-	if not targetPos then
+	local targetCf = getCheckpointTargetCFrame(race, entry)
+	if not targetCf then
 		return
 	end
 	local car, seat = getLocalPlayerVehicleSeat()
@@ -594,15 +620,16 @@ local function snapLocalVehicleToNextCheckpoint(race, entry)
 	local pivot = car:GetPivot()
 	local seatW = seat.CFrame
 	local yoff = type(Config.CheckpointSnapYOffset) == "number" and Config.CheckpointSnapYOffset or 3
-	local lv = seatW.LookVector
-	local flat = Vector3.new(lv.X, 0, lv.Z)
-	if flat.Magnitude < 1e-3 then
-		flat = Vector3.new(0, 0, -1)
+	local center = targetCf.Position
+	local flatLv = Vector3.new(targetCf.LookVector.X, 0, targetCf.LookVector.Z)
+	if flatLv.Magnitude < 0.12 then
+		flatLv = Vector3.new(0, 0, -1)
 	else
-		flat = flat.Unit
+		flatLv = flatLv.Unit
 	end
-	local aim = targetPos + Vector3.new(0, yoff, 0) + flat * 4
-	local targetSeat = CFrame.lookAt(targetPos + Vector3.new(0, yoff, 0), aim)
+	local pos = center + Vector3.new(0, yoff, 0)
+	local aim = pos + flatLv * 10
+	local targetSeat = CFrame.lookAt(pos, aim)
 	local newPivot = targetSeat * seatW:Inverse() * pivot
 	pcall(function()
 		car:PivotTo(newPivot)
@@ -685,12 +712,20 @@ local function tryTeleportCheckpointManual()
 	end)
 end
 
+local function checkpointChainGapSeconds()
+	if type(Config.CheckpointDwellSeconds) == "number" and Config.CheckpointDwellSeconds > 0 then
+		return Config.CheckpointDwellSeconds
+	end
+	return Config.TeleportChainInterval
+end
+
 local function tryTeleportCheckpointChain()
 	local race, entry = racerEntryForLocalPlayer()
 	if not race or not entry then
 		return
 	end
 	if not raceStateIsRacing(race) then
+		lastChainTeleportClock = -1e9
 		return
 	end
 	local car, seat = getLocalPlayerVehicleSeat()
@@ -698,7 +733,8 @@ local function tryTeleportCheckpointChain()
 		return
 	end
 	local now = os.clock()
-	if now - lastChainTeleportClock < Config.TeleportChainInterval then
+	local gap = checkpointChainGapSeconds()
+	if gap > 0 and (now - lastChainTeleportClock) < gap then
 		return
 	end
 	lastChainTeleportClock = now
@@ -898,13 +934,72 @@ local function runCarFlyStep(dt)
 	if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
 		move -= Vector3.yAxis
 	end
-	local cap = type(Config.CarFlySpeed) == "number" and Config.CarFlySpeed or 160
+	local baseFly = type(Config.CarFlySpeed) == "number" and Config.CarFlySpeed or 160
+	local cap = baseFly * speedMultiplier
+	local vmax = type(Config.CarFlyVelocityCap) == "number" and Config.CarFlyVelocityCap or 8000
+	cap = math.clamp(cap, Config.CarFlySpeedMin or 20, vmax)
 	if move.Magnitude > 1e-4 then
 		seat.AssemblyLinearVelocity = move.Unit * cap
 	else
 		local v = seat.AssemblyLinearVelocity
 		local damp = math.clamp(1 - dt * 4, 0, 1)
 		seat.AssemblyLinearVelocity = Vector3.new(v.X * damp, v.Y * damp * 0.96, v.Z * damp)
+	end
+end
+
+local function runCheckpointGuidedFlyStep()
+	local race, entry = racerEntryForLocalPlayer()
+	if not race or not entry or not raceStateIsRacing(race) then
+		return
+	end
+	local car, seat = getLocalPlayerVehicleSeat()
+	if not car or not seat then
+		return
+	end
+	local target = getCheckpointWorldPosition(race, entry)
+	if not target then
+		return
+	end
+	local flat = Vector3.new(target.X - seat.Position.X, 0, target.Z - seat.Position.Z)
+	local dy = target.Y - seat.Position.Y
+	if flat.Magnitude < 8 then
+		local v = seat.AssemblyLinearVelocity
+		seat.AssemblyLinearVelocity = Vector3.new(v.X * 0.88, v.Y * 0.88, v.Z * 0.88)
+		return
+	end
+	local hori = flat.Unit
+	local yfac = math.clamp(dy * 0.06, -0.85, 0.85)
+	local move = hori + Vector3.new(0, yfac, 0)
+	if move.Magnitude < 1e-4 then
+		return
+	end
+	move = move.Unit
+	local baseFly = type(Config.CarFlySpeed) == "number" and Config.CarFlySpeed or 160
+	local vmax = type(Config.CarFlyVelocityCap) == "number" and Config.CarFlyVelocityCap or 8000
+	local cap = math.clamp(baseFly * speedMultiplier, Config.CarFlySpeedMin or 20, vmax)
+	seat.AssemblyLinearVelocity = move * cap
+end
+
+local function holdCheckpointSnapIfChaining()
+	if not automationAllowed() then
+		return
+	end
+	if not (automationState.teleportChain or automationState.autoFarm) then
+		return
+	end
+	local race, entry = racerEntryForLocalPlayer()
+	if not race or not entry or not raceStateIsRacing(race) then
+		return
+	end
+	if not getCheckpointTargetCFrame(race, entry) then
+		return
+	end
+	local gap = checkpointChainGapSeconds()
+	if gap <= 0 then
+		return
+	end
+	if os.clock() - lastChainTeleportClock < gap then
+		snapLocalVehicleToNextCheckpoint(race, entry)
 	end
 end
 
@@ -1168,6 +1263,29 @@ local function buildLibraryUi()
 			end
 		end,
 	})
+	BotSec:Toggle({
+		Name = "Guided fly to next checkpoint (no chain or auto farm)",
+		Flag = "KpopCpGuidedFly",
+		Default = false,
+		Callback = function(v)
+			automationState.checkpointGuidedFly = v
+			if v then
+				releaseAllVirtualKeys()
+			end
+		end,
+	})
+	BotSec:Slider({
+		Name = "Checkpoint dwell before next teleport",
+		Flag = "KpopCpDwell",
+		Min = 0,
+		Max = 20,
+		Default = Config.CheckpointDwellSeconds,
+		Decimals = 1,
+		Suffix = "s",
+		Callback = function(v)
+			Config.CheckpointDwellSeconds = v
+		end,
+	})
 
 	Window:Category("Movement")
 	local MovePage = Window:Page({
@@ -1254,7 +1372,7 @@ function KpopDemon.Start()
 	end
 
 	lastTeleportClock = -Config.TeleportCooldownSeconds
-	lastChainTeleportClock = -Config.TeleportChainInterval
+	lastChainTeleportClock = -1e9
 
 	mainWindow = buildLibraryUi()
 
@@ -1329,12 +1447,39 @@ function KpopDemon.Start()
 		end
 	end)
 
+	task.spawn(function()
+		local iv = (type(Config.TuneReapplyIntervalSeconds) == "number" and Config.TuneReapplyIntervalSeconds > 0)
+				and Config.TuneReapplyIntervalSeconds
+			or 0.12
+		while true do
+			task.wait(iv)
+			if automationAllowed() and lastTuneScript then
+				if Config.ApplySpeedMultiplierToChassisTune or Config.ApplySteeringTune then
+					local _, seat = getLocalPlayerVehicleSeat()
+					if seat then
+						reapplyVehicleTune()
+					end
+				end
+			end
+		end
+	end)
+
 	RunService.RenderStepped:Connect(function(dt)
 		stepCarNoclip()
 		local flyOn = automationAllowed() and automationState.carFly
+		local guidedOn = automationAllowed()
+			and automationState.checkpointGuidedFly
+			and not flyOn
+			and not automationState.teleportChain
+			and not automationState.autoFarm
 		if flyOn then
 			releaseAllVirtualKeys()
 			runCarFlyStep(dt)
+		end
+		holdCheckpointSnapIfChaining()
+		if guidedOn then
+			releaseAllVirtualKeys()
+			runCheckpointGuidedFlyStep()
 		end
 		if labels.phase then
 			labels.phase:SetText("phase: " .. getRacePhaseText())
@@ -1403,6 +1548,7 @@ function KpopDemon.Start()
 
 		local wantDrive = automationAllowed()
 			and not flyOn
+			and not guidedOn
 			and (
 				automationState.autoFarm
 				or automationState.autoDriveV1
@@ -1410,7 +1556,7 @@ function KpopDemon.Start()
 			)
 		if wantDrive then
 			runAutoDriveStep(dt)
-		elseif not flyOn then
+		elseif not flyOn and not guidedOn then
 			releaseAllVirtualKeys()
 		end
 	end)
