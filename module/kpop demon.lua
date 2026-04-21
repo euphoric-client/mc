@@ -55,7 +55,6 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
-local VirtualUser = game:GetService("VirtualUser")
 
 local Modules = ReplicatedStorage:WaitForChild("Modules")
 local ClientRace = require(Modules.Client.ClientRace)
@@ -149,11 +148,6 @@ local automationState = {
 	autoNoclipWhileRacing = true,
 	carFly = false,
 	checkpointGuidedFly = false,
-	chassisInfiniteNitro = false,
-	chassisInstantBrake = false,
-	chassisWeightMod = false,
-	chassisAntiRoll = false,
-	antiAfk = false,
 }
 local noclipBaselineByPart = {}
 local noclipBoundCar = nil
@@ -178,23 +172,6 @@ local STEER_KEYS = {
 	MaxSteer = true,
 	SteerDecay = true,
 }
-local OPTIONAL_TUNE_NUMERIC = {
-	"Weight",
-	"Mass",
-	"BrakeForce",
-	"Brakes",
-	"Brake",
-	"Nitro",
-	"N2O",
-	"Boost",
-	"BoostPressure",
-	"ARB",
-	"AntiRoll",
-	"ARBStiffness",
-	"RollBar",
-	"AntiSway",
-}
-
 local function automationAllowed()
 	if not Config.AllowClientAutomation then
 		return false
@@ -353,12 +330,6 @@ local function captureBaseline(tuneScript, tune)
 			b[key] = v
 		end
 	end
-	for _, key in ipairs(OPTIONAL_TUNE_NUMERIC) do
-		local v = tune[key]
-		if type(v) == "number" and b[key] == nil then
-			b[key] = v
-		end
-	end
 	tuneBaselines[tuneScript] = b
 end
 
@@ -372,81 +343,11 @@ local function restoreTuneToBaseline(tuneScript, tune)
 	end
 end
 
-local function chassisExtrasWantTuneApply()
-	return automationState.chassisInfiniteNitro
-		or automationState.chassisInstantBrake
-		or automationState.chassisWeightMod
-		or automationState.chassisAntiRoll
-end
-
-local function applyChassisOptional(tune, b)
-	if not tune or not b then
-		return
-	end
-	if automationState.chassisWeightMod then
-		local wm = type(Config.ChassisWeightMultiplier) == "number" and Config.ChassisWeightMultiplier or 1
-		for _, k in ipairs({ "Weight", "Mass" }) do
-			if type(b[k]) == "number" then
-				tune[k] = b[k] * wm
-			end
-		end
-	end
-	if automationState.chassisInstantBrake then
-		local bm = type(Config.ChassisInstantBrakeMultiplier) == "number" and Config.ChassisInstantBrakeMultiplier
-			or 12
-		for _, k in ipairs({ "BrakeForce", "Brakes", "Brake" }) do
-			if type(b[k]) == "number" then
-				tune[k] = b[k] * bm
-			end
-		end
-	end
-	if automationState.chassisInfiniteNitro then
-		local nm = type(Config.ChassisNitroTuneMultiplier) == "number" and Config.ChassisNitroTuneMultiplier or 1e6
-		for _, k in ipairs({ "Nitro", "N2O", "Boost", "BoostPressure" }) do
-			if type(b[k]) == "number" then
-				tune[k] = b[k] * nm
-			end
-		end
-	end
-	if automationState.chassisAntiRoll then
-		local am = type(Config.ChassisAntiRollMultiplier) == "number" and Config.ChassisAntiRollMultiplier or 2
-		for _, k in ipairs({ "ARB", "AntiRoll", "ARBStiffness", "RollBar", "AntiSway" }) do
-			if type(b[k]) == "number" then
-				tune[k] = b[k] * am
-			end
-		end
-	end
-end
-
-local function applyInstNitroInstances(car)
-	if not car or not automationState.chassisInfiniteNitro then
-		return
-	end
-	local want = {
-		Nitro = true,
-		N2O = true,
-		Boost = true,
-		Nitrous = true,
-		Nos = true,
-	}
-	for _, d in car:GetDescendants() do
-		if want[d.Name] and (d:IsA("NumberValue") or d:IsA("IntValue")) then
-			if d:IsA("IntValue") then
-				d.Value = math.min(2147483647, math.max(d.Value, 999999))
-			else
-				d.Value = math.min(1e12, math.max(d.Value, 1e6))
-			end
-		end
-	end
-end
-
 local function reapplyVehicleTune()
 	if not lastTuneScript then
 		return
 	end
-	local needPower = Config.ApplySpeedMultiplierToChassisTune or Config.ApplySteeringTune
-	local needExtras = chassisExtrasWantTuneApply()
-	if not needPower and not needExtras then
+	if not (Config.ApplySpeedMultiplierToChassisTune or Config.ApplySteeringTune) then
 		return
 	end
 	local ok, tune = pcall(require, lastTuneScript)
@@ -458,21 +359,19 @@ local function reapplyVehicleTune()
 	if not b then
 		return
 	end
-	if needPower then
-		for key, base in b do
-			if POWER_KEYS[key] and Config.ApplySpeedMultiplierToChassisTune and type(base) == "number" then
-				tune[key] = base * speedMultiplier
-			elseif STEER_KEYS[key] and Config.ApplySteeringTune and type(base) == "number" then
-				tune[key] = base * steeringSensitivity
-			end
+	for key, base in b do
+		if POWER_KEYS[key] and Config.ApplySpeedMultiplierToChassisTune and type(base) == "number" then
+			tune[key] = base * speedMultiplier
+		elseif STEER_KEYS[key] and Config.ApplySteeringTune and type(base) == "number" then
+			tune[key] = base * steeringSensitivity
 		end
-	end
-	if needExtras then
-		applyChassisOptional(tune, b)
 	end
 end
 
 local function bindVehicleTuneForSeat(carModel)
+	if not (Config.ApplySpeedMultiplierToChassisTune or Config.ApplySteeringTune) then
+		return
+	end
 	local tuneScript = findTuneModule(carModel)
 	if not tuneScript then
 		clearVehicleTuneBinding()
@@ -480,7 +379,6 @@ local function bindVehicleTuneForSeat(carModel)
 	end
 	local ok, tune = pcall(require, tuneScript)
 	if not ok or typeof(tune) ~= "table" then
-		clearVehicleTuneBinding()
 		return
 	end
 	if lastTuneScript and lastTuneScript ~= tuneScript then
@@ -1601,70 +1499,6 @@ local function buildLibraryUi()
 		end,
 	})
 
-	local ChassisSec = MovePage:Section({
-		Name = "Chassis",
-		Description = "Only works if your tune or car exposes these fields; nitro also bumps Nitro-style NumberValues",
-		Icon = "126497581491926",
-		Side = 1,
-	})
-	ChassisSec:Toggle({
-		Name = "Infinite nitro (tune + Nitro values)",
-		Flag = "KpopChassisNitro",
-		Default = false,
-		Callback = function(v)
-			automationState.chassisInfiniteNitro = v
-			reapplyVehicleTune()
-		end,
-	})
-	ChassisSec:Toggle({
-		Name = "Stronger brakes (tune brake fields)",
-		Flag = "KpopChassisBrake",
-		Default = false,
-		Callback = function(v)
-			automationState.chassisInstantBrake = v
-			reapplyVehicleTune()
-		end,
-	})
-	ChassisSec:Toggle({
-		Name = "Weight multiplier (tune Weight or Mass)",
-		Flag = "KpopChassisWeight",
-		Default = false,
-		Callback = function(v)
-			automationState.chassisWeightMod = v
-			reapplyVehicleTune()
-		end,
-	})
-	ChassisSec:Slider({
-		Name = "Weight scale",
-		Flag = "KpopChassisWeightScale",
-		Min = type(Config.ChassisWeightMultiplierMin) == "number" and Config.ChassisWeightMultiplierMin or 0.35,
-		Max = type(Config.ChassisWeightMultiplierMax) == "number" and Config.ChassisWeightMultiplierMax or 1.5,
-		Default = type(Config.ChassisWeightMultiplier) == "number" and Config.ChassisWeightMultiplier or 0.85,
-		Decimals = 2,
-		Suffix = "x",
-		Callback = function(v)
-			Config.ChassisWeightMultiplier = v
-			reapplyVehicleTune()
-		end,
-	})
-	ChassisSec:Toggle({
-		Name = "Stiffer anti-roll (tune ARB-style fields)",
-		Flag = "KpopChassisRoll",
-		Default = false,
-		Callback = function(v)
-			automationState.chassisAntiRoll = v
-			reapplyVehicleTune()
-		end,
-	})
-	ChassisSec:Toggle({
-		Name = "Anti AFK (VirtualUser click)",
-		Flag = "KpopAntiAfk",
-		Default = false,
-		Callback = function(v)
-			automationState.antiAfk = v
-		end,
-	})
-
 	Library:Notification({
 		Title = "kpop demon",
 		Description = "Home or PageUp toggles menu.",
@@ -1783,43 +1617,13 @@ function KpopDemon.Start()
 			if not kpopScriptActive then
 				break
 			end
-			if automationAllowed() then
-				local car, seat = getLocalPlayerVehicleSeat()
-				if automationState.chassisInfiniteNitro and car then
-					applyInstNitroInstances(car)
-				end
-				if
-					lastTuneScript
-					and seat
-					and (
-						Config.ApplySpeedMultiplierToChassisTune
-						or Config.ApplySteeringTune
-						or chassisExtrasWantTuneApply()
-					)
-				then
-					reapplyVehicleTune()
-					if car then
-						applyInstNitroInstances(car)
+			if automationAllowed() and lastTuneScript then
+				if Config.ApplySpeedMultiplierToChassisTune or Config.ApplySteeringTune then
+					local _, seat = getLocalPlayerVehicleSeat()
+					if seat then
+						reapplyVehicleTune()
 					end
 				end
-			end
-		end
-	end)
-
-	task.spawn(function()
-		while kpopScriptActive do
-			local w = type(Config.AntiAfkIntervalSeconds) == "number" and Config.AntiAfkIntervalSeconds > 0
-					and Config.AntiAfkIntervalSeconds
-				or 120
-			task.wait(math.max(45, w))
-			if not kpopScriptActive then
-				break
-			end
-			if automationState.antiAfk and automationAllowed() then
-				pcall(function()
-					VirtualUser:CaptureController()
-					VirtualUser:ClickButton2(Vector2.new(0, 0))
-				end)
 			end
 		end
 	end)

@@ -41,11 +41,4 @@ return {
 	CarFlySpeedMax = 500,
 	CarFlyVelocityCap = 8000,
 	TuneReapplyIntervalSeconds = 0.12,
-	ChassisWeightMultiplier = 0.85,
-	ChassisWeightMultiplierMin = 0.35,
-	ChassisWeightMultiplierMax = 1.5,
-	ChassisInstantBrakeMultiplier = 14,
-	ChassisNitroTuneMultiplier = 1e6,
-	ChassisAntiRollMultiplier = 2,
-	AntiAfkIntervalSeconds = 120,
 }
