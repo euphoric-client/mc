@@ -151,6 +151,7 @@ local automationState = {
 	carFly = false,
 	checkpointGuidedFly = false,
 	antiAfk = false,
+	antiAfkActive = false,
 }
 local noclipBaselineByPart = {}
 local noclipBoundCar = nil
@@ -1814,9 +1815,11 @@ function KpopDemon.Start()
 				break
 			end
 			if automationState.antiAfk then
+				automationState.antiAfkActive = true
 				sendKey(Enum.KeyCode.W, true)
 				task.wait(3)
 				sendKey(Enum.KeyCode.W, false)
+				automationState.antiAfkActive = false
 			end
 		end
 	end)
@@ -1936,7 +1939,7 @@ function KpopDemon.Start()
 			)
 		if wantDrive then
 			runAutoDriveStep(dt)
-		elseif not flyOn and not guidedOn then
+		elseif not flyOn and not guidedOn and not automationState.antiAfkActive then
 			releaseAllVirtualKeys()
 		end
 	end)
