@@ -116,6 +116,8 @@ local lastChainTeleportClock = 0
 local lastChainRaceAnchor = nil
 local lastHoldResnapClock = 0
 local chainHoldTargetCf = nil
+local finishTeleportEarliestAt = nil
+local scriptUiConn = nil
 local speedMultiplier = Config.SpeedMultiplierDefault
 local steeringSensitivity = Config.SteeringSensitivityDefault
 local lastSoloQueueClock = 0
@@ -134,7 +136,6 @@ local mainWindow = nil
 local kpopScriptActive = false
 local scriptInputConn = nil
 local scriptRenderConn = nil
-local scriptUiConn = nil
 local scriptCharacterAddedConn = nil
 local scriptWorkspaceRacesConn = nil
 local raceFolderAddedConn = nil
@@ -174,6 +175,7 @@ local STEER_KEYS = {
 	MaxSteer = true,
 	SteerDecay = true,
 }
+
 local function automationAllowed()
 	if not Config.AllowClientAutomation then
 		return false
@@ -376,7 +378,6 @@ local function bindVehicleTuneForSeat(carModel)
 	end
 	local tuneScript = findTuneModule(carModel)
 	if not tuneScript then
-		clearVehicleTuneBinding()
 		return
 	end
 	local ok, tune = pcall(require, tuneScript)
@@ -426,12 +427,33 @@ local function readTuneSnapshot(carModel)
 	}
 end
 
+local function findRacerEntryInFolder(racersFolder)
+	if not racersFolder then
+		return nil
+	end
+	local want = localPlayer.Name
+	local direct = racersFolder:FindFirstChild(want)
+	if direct then
+		return direct
+	end
+	local wl = string.lower(want)
+	for _, ch in racersFolder:GetChildren() do
+		if ch:IsA("ObjectValue") and ch.Value == localPlayer then
+			return ch
+		end
+		if string.lower(ch.Name) == wl then
+			return ch
+		end
+	end
+	return nil
+end
+
 local function racerEntryForLocalPlayer()
 	local race = ClientRace.ClientRace
-	if not race then
+	if not race or not race.Racers then
 		return nil, nil
 	end
-	local entry = race.Racers:FindFirstChild(localPlayer.Name)
+	local entry = findRacerEntryInFolder(race.Racers)
 	return race, entry
 end
 
@@ -722,6 +744,40 @@ local function getCheckpointWorldPosition(race, entry)
 	return cf and cf.Position or nil
 end
 
+local function nextCheckpointIsFinish(race, entry)
+	local inst = findCheckpointInstanceForNext(race, entry)
+	if not inst then
+		return false
+	end
+	if inst.Name == "Finish" then
+		return true
+	end
+	local folder = race and race.Folder
+	if not folder then
+		return false
+	end
+	local total = getRaceCheckpointTotalCount(folder)
+	if total then
+		local idx = checkpointIndexFromInstanceName(inst.Name)
+		if idx and idx == total then
+			return true
+		end
+	end
+	return false
+end
+
+local function finishGateBlocksTeleport(race, entry)
+	if not nextCheckpointIsFinish(race, entry) then
+		finishTeleportEarliestAt = nil
+		return false
+	end
+	if not finishTeleportEarliestAt then
+		local d = type(Config.FinishLineTeleportDelaySeconds) == "number" and Config.FinishLineTeleportDelaySeconds or 120
+		finishTeleportEarliestAt = os.clock() + math.max(0, d)
+	end
+	return os.clock() < finishTeleportEarliestAt
+end
+
 local function snapLocalVehicleToTargetCFrame(targetCf)
 	if Config.UseClientCheckpointSnap == false then
 		return
@@ -812,6 +868,9 @@ local function tryTeleportCheckpointManual()
 	if not raceStateIsRacing(race) then
 		return
 	end
+	if finishGateBlocksTeleport(race, entry) then
+		return
+	end
 	local car, seat = getLocalPlayerVehicleSeat()
 	if not car or not seat then
 		return
@@ -831,6 +890,9 @@ local function tryTeleportCheckpointManual()
 		chainHoldTargetCf = targetCf
 		snapLocalVehicleToTargetCFrame(targetCf)
 	end)
+	if nextCheckpointIsFinish(race, entry) then
+		finishTeleportEarliestAt = nil
+	end
 end
 
 local function checkpointChainIntervalSeconds()
@@ -854,11 +916,15 @@ local function tryTeleportCheckpointChain()
 		lastChainRaceAnchor = anchor
 		lastChainTeleportClock = -1e9
 		chainHoldTargetCf = nil
+		finishTeleportEarliestAt = nil
 	end
 	if not raceStateIsRacing(race) then
 		return
 	end
 	if entry:GetAttribute("Finished") or entry:GetAttribute("DNF") then
+		return
+	end
+	if finishGateBlocksTeleport(race, entry) then
 		return
 	end
 	local car, seat = getLocalPlayerVehicleSeat()
@@ -881,6 +947,9 @@ local function tryTeleportCheckpointChain()
 		chainHoldTargetCf = targetCf
 		snapLocalVehicleToTargetCFrame(targetCf)
 	end)
+	if nextCheckpointIsFinish(race, entry) then
+		finishTeleportEarliestAt = nil
+	end
 end
 
 local function driveSeatCFrame(car)
@@ -1124,7 +1193,7 @@ local function holdCheckpointSnapIfChaining()
 		chainHoldTargetCf = nil
 		return
 	end
-	local holdCf = chainHoldTargetCf or getCheckpointTargetCFrame(race, entry)
+	local holdCf = chainHoldTargetCf
 	if not holdCf then
 		return
 	end
@@ -1191,6 +1260,7 @@ local function kpopPerformUnload()
 	lastChainRaceAnchor = nil
 	lastHoldResnapClock = 0
 	chainHoldTargetCf = nil
+	finishTeleportEarliestAt = nil
 	local win = mainWindow
 	mainWindow = nil
 	table.clear(labels)
@@ -1445,7 +1515,7 @@ local function buildLibraryUi()
 
 	local CpSec = Farm:Section({
 		Name = "Checkpoint route",
-		Description = "Only while Racing; wait this many seconds on each snap before the next teleport (manual hotkey still uses cooldown)",
+		Description = "Chain interval and finish delay come from KpopDemonConfig (git). Finish line waits FinishLineTeleportDelaySeconds after you become eligible.",
 		Icon = "103180437044643",
 		Side = 1,
 	})
@@ -1466,24 +1536,6 @@ local function buildLibraryUi()
 				syncLibFlag("KpopDriveV2", false)
 				releaseAllVirtualKeys()
 			end
-		end,
-	})
-	CpSec:Slider({
-		Name = "Seconds between checkpoint teleports",
-		Flag = "KpopTpRate",
-		Min = type(Config.TeleportEverySecondsMin) == "number" and Config.TeleportEverySecondsMin or 0.35,
-		Max = type(Config.TeleportEverySecondsMax) == "number" and Config.TeleportEverySecondsMax or 120,
-		Default = math.clamp(
-			type(Config.TeleportEverySeconds) == "number" and Config.TeleportEverySeconds or 2.5,
-			type(Config.TeleportEverySecondsMin) == "number" and Config.TeleportEverySecondsMin or 0.35,
-			type(Config.TeleportEverySecondsMax) == "number" and Config.TeleportEverySecondsMax or 120
-		),
-		Decimals = 2,
-		Suffix = "s",
-		Callback = function(v)
-			Config.TeleportEverySeconds = v
-			Config.TeleportChainInterval = v
-			Config.CheckpointDwellSeconds = v
 		end,
 	})
 
@@ -1688,6 +1740,8 @@ function KpopDemon.Start()
 
 	lastTeleportClock = -Config.TeleportCooldownSeconds
 	lastChainTeleportClock = -1e9
+	chainHoldTargetCf = nil
+	finishTeleportEarliestAt = nil
 
 	mainWindow = buildLibraryUi()
 

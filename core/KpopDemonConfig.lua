@@ -29,6 +29,7 @@ return {
 	TeleportEverySecondsMin = 0.35,
 	TeleportEverySecondsMax = 120,
 	TeleportChainInterval = 2.5,
+	FinishLineTeleportDelaySeconds = 120,
 	CheckpointDwellSeconds = 2.5,
 	AutoDriveV1SteerPulse = 0.08,
 	AutoDriveV2SteerPulse = 0.04,
