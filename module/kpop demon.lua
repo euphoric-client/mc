@@ -801,6 +801,29 @@ local function nudgeSpeedMultiplier(delta)
 	setSpeedMultiplier(speedMultiplier + delta)
 end
 
+local function deferCheckpointSnapAfterServer(capturedCf)
+	task.defer(function()
+		local cf = capturedCf
+		local r = ClientRace.ClientRace
+		local e = r and r.Racers:FindFirstChild(localPlayer.Name)
+		if not r or not e then
+			return
+		end
+		if not cf then
+			task.wait(0.1)
+			cf = getCheckpointTargetCFrame(r, e)
+		end
+		if not cf then
+			task.wait(0.2)
+			cf = getCheckpointTargetCFrame(r, e)
+		end
+		if cf then
+			chainHoldTargetCf = cf
+			snapLocalVehicleToTargetCFrame(cf)
+		end
+	end)
+end
+
 local function tryTeleportCheckpointManual()
 	local race, entry = racerEntryForLocalPlayer()
 	if not race or not entry then
@@ -817,9 +840,6 @@ local function tryTeleportCheckpointManual()
 		return
 	end
 	local targetCf = getCheckpointTargetCFrame(race, entry)
-	if not targetCf then
-		return
-	end
 	local now = os.clock()
 	if now - lastTeleportClock < Config.TeleportCooldownSeconds then
 		return
@@ -827,10 +847,7 @@ local function tryTeleportCheckpointManual()
 	lastTeleportClock = now
 	lastChainTeleportClock = now
 	Network.FireServer("TeleportCheckpoint")
-	task.defer(function()
-		chainHoldTargetCf = targetCf
-		snapLocalVehicleToTargetCFrame(targetCf)
-	end)
+	deferCheckpointSnapAfterServer(targetCf)
 end
 
 local function checkpointChainIntervalSeconds()
@@ -866,9 +883,6 @@ local function tryTeleportCheckpointChain()
 		return
 	end
 	local targetCf = getCheckpointTargetCFrame(race, entry)
-	if not targetCf then
-		return
-	end
 	local now = os.clock()
 	local gap = checkpointChainIntervalSeconds()
 	if (now - lastChainTeleportClock) < gap then
@@ -877,10 +891,7 @@ local function tryTeleportCheckpointChain()
 	lastChainTeleportClock = now
 	lastTeleportClock = now
 	Network.FireServer("TeleportCheckpoint")
-	task.defer(function()
-		chainHoldTargetCf = targetCf
-		snapLocalVehicleToTargetCFrame(targetCf)
-	end)
+	deferCheckpointSnapAfterServer(targetCf)
 end
 
 local function driveSeatCFrame(car)
