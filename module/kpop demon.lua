@@ -150,6 +150,7 @@ local automationState = {
 	autoNoclipWhileRacing = true,
 	carFly = false,
 	checkpointGuidedFly = false,
+	antiAfk = false,
 }
 local noclipBaselineByPart = {}
 local noclipBoundCar = nil
@@ -1521,6 +1522,21 @@ local function buildLibraryUi()
 		end,
 	})
 
+	local AntiAfkSec = Farm:Section({
+		Name = "Anti AFK",
+		Description = "Holds W for 3 seconds every minute",
+		Icon = "126497581491926",
+		Side = 1,
+	})
+	AntiAfkSec:Toggle({
+		Name = "Anti AFK",
+		Flag = "KpopAntiAfk",
+		Default = false,
+		Callback = function(v)
+			automationState.antiAfk = v
+		end,
+	})
+
 	local CpSec = Farm:Section({
 		Name = "Checkpoint route",
 		Description = "Only while Racing; lower seconds = faster teleports (capped by cooldown)",
@@ -1787,6 +1803,20 @@ function KpopDemon.Start()
 				if automationState.teleportChain or automationState.autoFarm then
 					tryTeleportCheckpointChain()
 				end
+			end
+		end
+	end)
+
+	task.spawn(function()
+		while kpopScriptActive do
+			task.wait(60)
+			if not kpopScriptActive then
+				break
+			end
+			if automationState.antiAfk then
+				sendKey(Enum.KeyCode.W, true)
+				task.wait(3)
+				sendKey(Enum.KeyCode.W, false)
 			end
 		end
 	end)
