@@ -46,6 +46,9 @@ local function getge()
 	return _G.getgenv and _G.getgenv() or _G
 end
 
+assert(type(getgenv) == "function", "kpop demon: getgenv required (executor only)")
+assert(type(loadstring) == "function", "kpop demon: loadstring required (executor only)")
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -61,52 +64,24 @@ local RaceDB = require(Modules.DB.RaceDB)
 
 local function resolveConfig()
 	local ge = getge()
-	if ge and ge.KpopDemonConfig then
-		return ge.KpopDemonConfig
+	local c = ge and ge.KpopDemonConfig
+	if type(c) == "table" then
+		return c
 	end
-	if script and script.Parent then
-		local m = script.Parent:FindFirstChild("KpopDemonConfig")
-		if m and m:IsA("ModuleScript") then
-			return require(m)
-		end
-	end
-	error("kpop demon: missing Config (run loader.lua from git or add KpopDemonConfig ModuleScript)")
+	error("kpop demon: getgenv().KpopDemonConfig missing (run loader.lua from git)")
 end
 
 local function resolveHotkeys()
 	local ge = getge()
-	if ge and ge.KpopDemonHotkeys then
-		return ge.KpopDemonHotkeys
+	local h = ge and ge.KpopDemonHotkeys
+	if type(h) == "table" then
+		return h
 	end
-	if script and script.Parent then
-		local m = script.Parent:FindFirstChild("KpopDemonHotkeys")
-		if m and m:IsA("ModuleScript") then
-			return require(m)
-		end
-	end
-	error("kpop demon: missing Hotkeys (run loader.lua from git or add KpopDemonHotkeys ModuleScript)")
+	error("kpop demon: getgenv().KpopDemonHotkeys missing (run loader.lua from git)")
 end
 
 local Config = resolveConfig()
 local Hotkeys = resolveHotkeys()
-
-local function requireLocalLibrarySibling()
-	if not script or not script.Parent then
-		return nil
-	end
-	local libFolder = script.Parent:FindFirstChild("library")
-	if libFolder then
-		local mod = libFolder:FindFirstChild("Library")
-		if mod and mod:IsA("ModuleScript") then
-			return require(mod)
-		end
-	end
-	local alt = ReplicatedStorage:FindFirstChild("KpopDemonLibrary")
-	if alt and alt:IsA("ModuleScript") then
-		return require(alt)
-	end
-	return nil
-end
 
 local function loadRemoteLibrary()
 	local url = Config.LibraryRemoteUrl
@@ -123,28 +98,11 @@ local function loadRemoteLibrary()
 end
 
 local function resolveLibrary()
-	if Config.PreferLocalLibrary then
-		local localLib = requireLocalLibrarySibling()
-		if localLib then
-			return localLib
-		end
-		local remoteLib = loadRemoteLibrary()
-		if remoteLib then
-			return remoteLib
-		end
-	else
-		local remoteLib = loadRemoteLibrary()
-		if remoteLib then
-			return remoteLib
-		end
-		local localLib = requireLocalLibrarySibling()
-		if localLib then
-			return localLib
-		end
+	local lib = loadRemoteLibrary()
+	if lib then
+		return lib
 	end
-	error(
-		"kpop demon: set Config.LibraryRemoteUrl (same as menu Example HttpGet) or add folder `library` with ModuleScript `Library`, or ReplicatedStorage.KpopDemonLibrary"
-	)
+	error("kpop demon: Library HttpGet failed (check LibraryRemoteUrl in KpopDemonConfig on git)")
 end
 
 local Library = resolveLibrary()
@@ -894,14 +852,12 @@ function KpopDemon.Start()
 end
 
 local ge = getge()
-if ge and ge.KpopDemonFromLoader then
-	if not ge.KpopDemonStarted then
-		ge.KpopDemonStarted = true
-		task.defer(function()
-			KpopDemon.Init()
-			KpopDemon.Start()
-		end)
-	end
+if not ge.KpopDemonStarted then
+	ge.KpopDemonStarted = true
+	task.defer(function()
+		KpopDemon.Init()
+		KpopDemon.Start()
+	end)
 end
 
 return KpopDemon

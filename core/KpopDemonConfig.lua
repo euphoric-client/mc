@@ -1,6 +1,5 @@
 return {
 	LibraryRemoteUrl = "https://raw.githubusercontent.com/sametexe001/sametlibs/refs/heads/main/Mentality/Library.lua",
-	PreferLocalLibrary = false,
 	DisplayName = "kpop demon",
 	Races = {
 		Race1 = { Name = "City Highway Race", Map = "Tokyo" },

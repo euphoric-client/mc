@@ -2,7 +2,10 @@ if not game:IsLoaded() then
 	game.Loaded:Wait()
 end
 
-local g = (getgenv and getgenv()) or _G
+assert(type(getgenv) == "function", "kpop demon loader: getgenv required (executor)")
+assert(type(loadstring) == "function", "kpop demon loader: loadstring required (executor)")
+
+local g = getgenv()
 local base = g.KpopDemonRawBase or "https://raw.githubusercontent.com/euphoric-client/mc/main/"
 if string.sub(base, -1) ~= "/" then
 	base = base .. "/"
@@ -21,7 +24,7 @@ end
 
 g.KpopDemonConfig = runModule("core/KpopDemonConfig.lua")
 g.KpopDemonHotkeys = runModule("menu/KpopDemonHotkeys.lua")
-g.KpopDemonFromLoader = true
+g.KpopDemonStarted = nil
 
 local mainBody
 local paths = { "module/kpop%20demon.lua", "module/kpop demon.lua" }
