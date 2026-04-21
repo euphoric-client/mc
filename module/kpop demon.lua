@@ -117,6 +117,7 @@ local speedMultiplier = Config.SpeedMultiplierDefault
 local steeringSensitivity = Config.SteeringSensitivityDefault
 local lastSoloQueueClock = 0
 local lastWithPlayerQueueClock = 0
+local queuePlayersTeleportedOnce = false
 local chainFinishWaitUntil = nil -- set when we need to wait 2 min before teleporting to Finish
 local characterConnections = {}
 local function disconnectAllCharacterSignals()
@@ -518,17 +519,19 @@ local function tryAutoSoloQueue()
 	Network.FireServer("StartSoloRace", rid)
 end
 
--- Returns the center position of the QueueRegion for the selected race, or nil
+-- Returns the center position and radius of the QueueRegion for the selected race
 local function getQueueRegionCenter()
 	local rid = automationState.selectedRaceId
-	if type(rid) ~= "string" or rid == "" then return nil end
+	if type(rid) ~= "string" or rid == "" then return nil, 0 end
 	local raceFolder = Workspace:FindFirstChild("Races") and Workspace.Races:FindFirstChild(rid)
-	if not raceFolder then return nil end
+	if not raceFolder then return nil, 0 end
 	local qr = raceFolder:FindFirstChild("QueueRegion")
 	if qr and qr:IsA("BasePart") then
-		return qr.Position
+		-- QueueRegion is a Cylinder: Size = (height, diameter, diameter)
+		local radius = math.max(qr.Size.Y, qr.Size.Z) / 2
+		return qr.Position, radius
 	end
-	return nil
+	return nil, 0
 end
 
 
@@ -556,10 +559,11 @@ local function getLocalPlayerVehicleSeat()
 	return nil, nil
 end
 
--- Teleports the player's car to the race border/queue circle and holds it there
--- until the race starts with other players.
+-- Teleports the player's car to the race queue circle on first toggle,
+-- then only re-teleports if the car drifts outside the circle boundary.
 local function tryAutoQueueWithPlayers()
 	if not automationState.autoQueueWithPlayers then
+		queuePlayersTeleportedOnce = false
 		return
 	end
 	if not automationAllowed() then
@@ -570,15 +574,26 @@ local function tryAutoQueueWithPlayers()
 		return
 	end
 	local now = os.clock()
-	if now - lastWithPlayerQueueClock < 1 then
+	if now - lastWithPlayerQueueClock < 0.5 then
 		return
 	end
 	lastWithPlayerQueueClock = now
-	local qPos = getQueueRegionCenter()
+	local qPos, radius = getQueueRegionCenter()
 	if not qPos then return end
 	local car, seat = getLocalPlayerVehicleSeat()
 	if not car or not seat then return end
-	-- Always teleport the car to the queue circle center
+
+	-- Flat distance (XZ plane) from car to circle center
+	local dx = seat.Position.X - qPos.X
+	local dz = seat.Position.Z - qPos.Z
+	local flatDist = math.sqrt(dx * dx + dz * dz)
+
+	-- Only teleport if: first time, or car left the circle
+	if queuePlayersTeleportedOnce and flatDist <= radius then
+		return -- still inside circle, leave it alone
+	end
+
+	-- Teleport car to circle center
 	local targetPos = qPos + Vector3.new(0, 4, 0)
 	local pivot = car:GetPivot()
 	local seatW = seat.CFrame
@@ -594,6 +609,7 @@ local function tryAutoQueueWithPlayers()
 			d.AssemblyAngularVelocity = Vector3.zero
 		end
 	end
+	queuePlayersTeleportedOnce = true
 end
 
 local function checkpointIndexFromInstanceName(name)
