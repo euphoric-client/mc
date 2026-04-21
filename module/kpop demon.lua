@@ -117,11 +117,24 @@ local speedMultiplier = Config.SpeedMultiplierDefault
 local steeringSensitivity = Config.SteeringSensitivityDefault
 local lastSoloQueueClock = 0
 local characterConnections = {}
+local function disconnectAllCharacterSignals()
+	for _, c in characterConnections do
+		c:Disconnect()
+	end
+	table.clear(characterConnections)
+end
 local watchedRacesRoot = nil
 local tuneBaselines = {}
 local lastTuneScript = nil
 local raceDisplayNames = {}
 local mainWindow = nil
+local kpopScriptActive = false
+local scriptInputConn = nil
+local scriptRenderConn = nil
+local scriptCharacterAddedConn = nil
+local scriptWorkspaceRacesConn = nil
+local raceFolderAddedConn = nil
+local raceFolderRemovedConn = nil
 local automationState = {
 	autoFarm = false,
 	teleportChain = false,
@@ -201,16 +214,29 @@ local function refreshRaceNamesFromWorkspace()
 	end
 end
 
+local function unbindRaceFolderWatchers()
+	if raceFolderAddedConn then
+		raceFolderAddedConn:Disconnect()
+		raceFolderAddedConn = nil
+	end
+	if raceFolderRemovedConn then
+		raceFolderRemovedConn:Disconnect()
+		raceFolderRemovedConn = nil
+	end
+	watchedRacesRoot = nil
+end
+
 local function bindWorkspaceRacesWatcher()
 	local root = Workspace:FindFirstChild("Races")
 	if not root or watchedRacesRoot == root then
 		return
 	end
+	unbindRaceFolderWatchers()
 	watchedRacesRoot = root
-	root.ChildAdded:Connect(function()
+	raceFolderAddedConn = root.ChildAdded:Connect(function()
 		task.defer(refreshRaceNamesFromWorkspace)
 	end)
-	root.ChildRemoved:Connect(function()
+	raceFolderRemovedConn = root.ChildRemoved:Connect(function()
 		task.defer(refreshRaceNamesFromWorkspace)
 	end)
 end
@@ -1003,6 +1029,64 @@ local function holdCheckpointSnapIfChaining()
 	end
 end
 
+local function kpopDestroyMainWindowDeferred(win)
+	if not win then
+		return
+	end
+	task.defer(function()
+		local items = win.Items
+		local mf = items and items["MainFrame"]
+		local inst = mf and mf.Instance
+		if inst then
+			local sg = inst:FindFirstAncestorWhichIsA("ScreenGui")
+			if sg then
+				sg:Destroy()
+			elseif inst.Parent then
+				inst:Destroy()
+			end
+		end
+	end)
+end
+
+local function kpopPerformUnload()
+	if not kpopScriptActive then
+		return
+	end
+	kpopScriptActive = false
+	if scriptInputConn then
+		scriptInputConn:Disconnect()
+		scriptInputConn = nil
+	end
+	if scriptRenderConn then
+		scriptRenderConn:Disconnect()
+		scriptRenderConn = nil
+	end
+	if scriptCharacterAddedConn then
+		scriptCharacterAddedConn:Disconnect()
+		scriptCharacterAddedConn = nil
+	end
+	if scriptWorkspaceRacesConn then
+		scriptWorkspaceRacesConn:Disconnect()
+		scriptWorkspaceRacesConn = nil
+	end
+	unbindRaceFolderWatchers()
+	disconnectAllCharacterSignals()
+	restoreCarNoclipBaselines()
+	clearVehicleTuneBinding()
+	releaseAllVirtualKeys()
+	local win = mainWindow
+	mainWindow = nil
+	table.clear(labels)
+	kpopDestroyMainWindowDeferred(win)
+	local ge = getge()
+	ge.KpopDemonStarted = nil
+	ge.KpopDemonUnload = nil
+end
+
+function KpopDemon.Unload()
+	task.defer(kpopPerformUnload)
+end
+
 local function buildLibraryUi()
 	Library.Theme["Accent"] = Color3.fromRGB(255, 105, 180)
 	Library.Theme["AccentGradient"] = Color3.fromRGB(255, 140, 200)
@@ -1053,6 +1137,12 @@ local function buildLibraryUi()
 	labels.racesCount = Live:Label("workspace races: —")
 	labels.state = Live:Label("active: —")
 	labels.checkpoint = Live:Label("checkpoint: —")
+	Live:Button({
+		Name = "Unload script",
+		Callback = function()
+			KpopDemon.Unload()
+		end,
+	})
 
 	Window:Category("Tuning")
 	local TunePage = Window:Page({
@@ -1359,11 +1449,12 @@ function KpopDemon.Init()
 end
 
 function KpopDemon.Start()
+	kpopScriptActive = true
 	mergeStaticRaceNames()
 	refreshRaceNamesFromWorkspace()
 	bindWorkspaceRacesWatcher()
 	if not Workspace:FindFirstChild("Races") then
-		Workspace.ChildAdded:Connect(function(ch)
+		scriptWorkspaceRacesConn = Workspace.ChildAdded:Connect(function(ch)
 			if ch.Name == "Races" then
 				refreshRaceNamesFromWorkspace()
 				bindWorkspaceRacesWatcher()
@@ -1376,7 +1467,10 @@ function KpopDemon.Start()
 
 	mainWindow = buildLibraryUi()
 
-	UserInputService.InputBegan:Connect(function(input, processed)
+	scriptInputConn = UserInputService.InputBegan:Connect(function(input, processed)
+		if not kpopScriptActive then
+			return
+		end
 		if processed then
 			return
 		end
@@ -1394,15 +1488,11 @@ function KpopDemon.Start()
 		end
 	end)
 
-	local function clearCharacterConnections()
-		for _, c in characterConnections do
-			c:Disconnect()
-		end
-		table.clear(characterConnections)
-	end
-
 	local function onCharacterAdded(character)
-		clearCharacterConnections()
+		if not kpopScriptActive then
+			return
+		end
+		disconnectAllCharacterSignals()
 		restoreCarNoclipBaselines()
 		clearVehicleTuneBinding()
 		local hum = character:WaitForChild("Humanoid", 30)
@@ -1411,6 +1501,9 @@ function KpopDemon.Start()
 		end
 		local function handleSeat()
 			task.defer(function()
+				if not kpopScriptActive then
+					return
+				end
 				local seat = hum.SeatPart
 				if seat and seat:IsA("VehicleSeat") then
 					local car = seat:FindFirstAncestorWhichIsA("Model")
@@ -1431,11 +1524,14 @@ function KpopDemon.Start()
 	if localPlayer.Character then
 		onCharacterAdded(localPlayer.Character)
 	end
-	localPlayer.CharacterAdded:Connect(onCharacterAdded)
+	scriptCharacterAddedConn = localPlayer.CharacterAdded:Connect(onCharacterAdded)
 
 	task.spawn(function()
-		while true do
+		while kpopScriptActive do
 			task.wait(0.2)
+			if not kpopScriptActive then
+				break
+			end
 			if automationAllowed() then
 				if automationState.autoQueueSolo then
 					tryAutoSoloQueue()
@@ -1451,8 +1547,11 @@ function KpopDemon.Start()
 		local iv = (type(Config.TuneReapplyIntervalSeconds) == "number" and Config.TuneReapplyIntervalSeconds > 0)
 				and Config.TuneReapplyIntervalSeconds
 			or 0.12
-		while true do
+		while kpopScriptActive do
 			task.wait(iv)
+			if not kpopScriptActive then
+				break
+			end
 			if automationAllowed() and lastTuneScript then
 				if Config.ApplySpeedMultiplierToChassisTune or Config.ApplySteeringTune then
 					local _, seat = getLocalPlayerVehicleSeat()
@@ -1464,7 +1563,10 @@ function KpopDemon.Start()
 		end
 	end)
 
-	RunService.RenderStepped:Connect(function(dt)
+	scriptRenderConn = RunService.RenderStepped:Connect(function(dt)
+		if not kpopScriptActive then
+			return
+		end
 		stepCarNoclip()
 		local flyOn = automationAllowed() and automationState.carFly
 		local guidedOn = automationAllowed()
@@ -1560,6 +1662,7 @@ function KpopDemon.Start()
 			releaseAllVirtualKeys()
 		end
 	end)
+	getge().KpopDemonUnload = KpopDemon.Unload
 end
 
 local ge = getge()
