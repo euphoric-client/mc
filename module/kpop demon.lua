@@ -531,8 +531,8 @@ local function getQueueRegionCenter()
 	return nil
 end
 
--- Keeps the player's car inside the race border/queue circle until the race starts.
--- Fires periodically to nudge the car back to the queue center if it drifted.
+-- Teleports the player's car to the race border/queue circle and holds it there
+-- until the race starts with other players.
 local function tryAutoQueueWithPlayers()
 	if not automationState.autoQueueWithPlayers then
 		return
@@ -545,7 +545,7 @@ local function tryAutoQueueWithPlayers()
 		return
 	end
 	local now = os.clock()
-	if now - lastWithPlayerQueueClock < 1.5 then
+	if now - lastWithPlayerQueueClock < 1 then
 		return
 	end
 	lastWithPlayerQueueClock = now
@@ -553,25 +553,20 @@ local function tryAutoQueueWithPlayers()
 	if not qPos then return end
 	local car, seat = getLocalPlayerVehicleSeat()
 	if not car or not seat then return end
-	-- Nudge the car to stay at the queue circle center (slightly above to avoid ground clip)
+	-- Always teleport the car to the queue circle center
 	local targetPos = qPos + Vector3.new(0, 4, 0)
-	local current = seat.Position
-	local dist = (current - targetPos).Magnitude
-	if dist > 8 then
-		-- Teleport car back to queue region center
-		local pivot = car:GetPivot()
-		local seatW = seat.CFrame
-		local newSeat = CFrame.new(targetPos)
-		local newPivot = newSeat * seatW:Inverse() * pivot
-		pcall(function()
-			car:PivotTo(newPivot)
-		end)
-		-- Zero velocity so it doesn't slide
-		for _, d in car:GetDescendants() do
-			if d:IsA("BasePart") then
-				d.AssemblyLinearVelocity = Vector3.zero
-				d.AssemblyAngularVelocity = Vector3.zero
-			end
+	local pivot = car:GetPivot()
+	local seatW = seat.CFrame
+	local newSeat = CFrame.new(targetPos)
+	local newPivot = newSeat * seatW:Inverse() * pivot
+	pcall(function()
+		car:PivotTo(newPivot)
+	end)
+	-- Zero velocity so it doesn't slide out
+	for _, d in car:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.AssemblyLinearVelocity = Vector3.zero
+			d.AssemblyAngularVelocity = Vector3.zero
 		end
 	end
 end
