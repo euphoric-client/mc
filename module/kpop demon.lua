@@ -739,10 +739,11 @@ local function tryTeleportCheckpointManual()
 end
 
 local function checkpointChainGapSeconds()
-	if type(Config.CheckpointDwellSeconds) == "number" and Config.CheckpointDwellSeconds > 0 then
-		return Config.CheckpointDwellSeconds
-	end
-	return Config.TeleportChainInterval
+	local cd = type(Config.TeleportCooldownSeconds) == "number" and Config.TeleportCooldownSeconds or 0.5
+	local rate = type(Config.TeleportEverySeconds) == "number" and Config.TeleportEverySeconds > 0
+		and Config.TeleportEverySeconds
+		or Config.TeleportChainInterval
+	return math.max(cd, rate)
 end
 
 local function tryTeleportCheckpointChain()
@@ -1328,7 +1329,7 @@ local function buildLibraryUi()
 
 	local CpSec = Farm:Section({
 		Name = "Checkpoint route",
-		Description = "Only while Racing; uses TeleportCheckpoint remote",
+		Description = "Only while Racing; lower seconds = faster teleports (capped by cooldown)",
 		Icon = "103180437044643",
 		Side = 1,
 	})
@@ -1352,26 +1353,29 @@ local function buildLibraryUi()
 		end,
 	})
 	CpSec:Slider({
-		Name = "Min gap between teleports",
-		Flag = "KpopTpInterval",
-		Min = Config.TeleportCooldownSeconds,
-		Max = 20,
-		Default = Config.TeleportChainInterval,
+		Name = "Seconds between checkpoint teleports",
+		Flag = "KpopTpRate",
+		Min = math.max(
+			Config.TeleportCooldownSeconds or 0,
+			type(Config.TeleportEverySecondsMin) == "number" and Config.TeleportEverySecondsMin or 0.35
+		),
+		Max = math.max(
+			type(Config.TeleportEverySecondsMax) == "number" and Config.TeleportEverySecondsMax or 45,
+			Config.TeleportCooldownSeconds or 0
+		),
+		Default = math.clamp(
+			type(Config.TeleportEverySeconds) == "number" and Config.TeleportEverySeconds or 2.5,
+			math.max(
+				Config.TeleportCooldownSeconds or 0,
+				type(Config.TeleportEverySecondsMin) == "number" and Config.TeleportEverySecondsMin or 0.35
+			),
+			type(Config.TeleportEverySecondsMax) == "number" and Config.TeleportEverySecondsMax or 45
+		),
 		Decimals = 2,
 		Suffix = "s",
 		Callback = function(v)
+			Config.TeleportEverySeconds = v
 			Config.TeleportChainInterval = v
-		end,
-	})
-	CpSec:Slider({
-		Name = "Dwell at checkpoint center",
-		Flag = "KpopCpDwell",
-		Min = 0,
-		Max = 20,
-		Default = Config.CheckpointDwellSeconds,
-		Decimals = 1,
-		Suffix = "s",
-		Callback = function(v)
 			Config.CheckpointDwellSeconds = v
 		end,
 	})
