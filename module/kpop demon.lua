@@ -1,54 +1,49 @@
 do
-	local g = _G
-	if not g.isfolder then
-		g.isfolder = function()
+	local function stub(t)
+		if type(t) ~= "table" then
+			return
+		end
+		t.isfolder = t.isfolder or function()
 			return false
 		end
-	end
-	if not g.makefolder then
-		g.makefolder = function() end
-	end
-	if not g.isfile then
-		g.isfile = function()
+		t.makefolder = t.makefolder or function() end
+		t.isfile = t.isfile or function()
 			return false
 		end
-	end
-	if not g.writefile then
-		g.writefile = function() end
-	end
-	if not g.readfile then
-		g.readfile = function()
+		t.writefile = t.writefile or function() end
+		t.readfile = t.readfile or function()
 			return ""
 		end
-	end
-	if not g.listfiles then
-		g.listfiles = function()
+		t.listfiles = t.listfiles or function()
 			return {}
 		end
-	end
-	if not g.delfile then
-		g.delfile = function() end
-	end
-	if not g.cloneref then
-		g.cloneref = function(o)
+		t.delfile = t.delfile or function() end
+		t.cloneref = t.cloneref or function(o)
 			return o
 		end
-	end
-	if not g.getcustomasset then
-		g.getcustomasset = function(s)
+		t.getcustomasset = t.getcustomasset or function(s)
 			return s
 		end
-	end
-	if not g.gethui then
-		g.gethui = function()
+		t.gethui = t.gethui or function()
 			return game:GetService("CoreGui")
 		end
 	end
-	if not g.getgenv then
-		g.getgenv = function()
-			return g
-		end
+	stub(_G)
+	_G.getgenv = _G.getgenv or function()
+		return _G
 	end
+	if type(getgenv) == "function" then
+		stub(getgenv())
+	else
+		stub(_G.getgenv())
+	end
+end
+
+local function getge()
+	if type(getgenv) == "function" then
+		return getgenv()
+	end
+	return _G.getgenv and _G.getgenv() or _G
 end
 
 local Players = game:GetService("Players")
@@ -64,10 +59,41 @@ local Races = require(Modules.Shared.Races.Races)
 local Network = require(Modules.Modules.Network)
 local RaceDB = require(Modules.DB.RaceDB)
 
-local Config = require(script.Parent.KpopDemonConfig)
-local Hotkeys = require(script.Parent.KpopDemonHotkeys)
+local function resolveConfig()
+	local ge = getge()
+	if ge and ge.KpopDemonConfig then
+		return ge.KpopDemonConfig
+	end
+	if script and script.Parent then
+		local m = script.Parent:FindFirstChild("KpopDemonConfig")
+		if m and m:IsA("ModuleScript") then
+			return require(m)
+		end
+	end
+	error("kpop demon: missing Config (run loader.lua from git or add KpopDemonConfig ModuleScript)")
+end
+
+local function resolveHotkeys()
+	local ge = getge()
+	if ge and ge.KpopDemonHotkeys then
+		return ge.KpopDemonHotkeys
+	end
+	if script and script.Parent then
+		local m = script.Parent:FindFirstChild("KpopDemonHotkeys")
+		if m and m:IsA("ModuleScript") then
+			return require(m)
+		end
+	end
+	error("kpop demon: missing Hotkeys (run loader.lua from git or add KpopDemonHotkeys ModuleScript)")
+end
+
+local Config = resolveConfig()
+local Hotkeys = resolveHotkeys()
 
 local function requireLocalLibrarySibling()
+	if not script or not script.Parent then
+		return nil
+	end
 	local libFolder = script.Parent:FindFirstChild("library")
 	if libFolder then
 		local mod = libFolder:FindFirstChild("Library")
@@ -865,6 +891,17 @@ function KpopDemon.Start()
 			releaseAllVirtualKeys()
 		end
 	end)
+end
+
+local ge = getge()
+if ge and ge.KpopDemonFromLoader then
+	if not ge.KpopDemonStarted then
+		ge.KpopDemonStarted = true
+		task.defer(function()
+			KpopDemon.Init()
+			KpopDemon.Start()
+		end)
+	end
 end
 
 return KpopDemon
