@@ -1097,6 +1097,13 @@ local function buildLibraryUi()
 		Logo = "120959262762131",
 	})
 
+	local function syncLibFlag(flag, value)
+		local sf = Library.SetFlags
+		if sf and sf[flag] then
+			sf[flag](value)
+		end
+	end
+
 	local raceIds = listSelectableRaceIds()
 	if #raceIds == 0 then
 		table.insert(raceIds, "Race5")
@@ -1204,22 +1211,10 @@ local function buildLibraryUi()
 		end,
 	})
 	local AutoInputSec = TunePage:Section({
-		Name = "Automation timing",
-		Description = "teleport cadence and virtual steer pulses",
+		Name = "Drive assist timing",
+		Description = "virtual steer pulses and throttle distance",
 		Icon = "103180437044643",
 		Side = 1,
-	})
-	AutoInputSec:Slider({
-		Name = "Teleport chain interval",
-		Flag = "KpopTpInterval",
-		Min = Config.TeleportCooldownSeconds,
-		Max = 20,
-		Default = Config.TeleportChainInterval,
-		Decimals = 2,
-		Suffix = "s",
-		Callback = function(v)
-			Config.TeleportChainInterval = v
-		end,
 	})
 	AutoInputSec:Slider({
 		Name = "Auto drive V1 steer pulse",
@@ -1260,16 +1255,16 @@ local function buildLibraryUi()
 
 	Window:Category("Farm")
 	local Farm = Window:Page({
-		Name = "Auto",
+		Name = "Farm",
 		Icon = "108839695397679",
 	})
-	local QueueSec = Farm:Section({
-		Name = "Queue",
-		Description = "StartSoloRace with RaceId",
+	local SoloSec = Farm:Section({
+		Name = "Solo race",
+		Description = "Race id for StartSoloRace",
 		Icon = "126497581491926",
 		Side = 1,
 	})
-	QueueSec:Dropdown({
+	SoloSec:Dropdown({
 		Name = "Race to run",
 		Flag = "KpopRacePick",
 		Default = defaultLabel,
@@ -1287,8 +1282,8 @@ local function buildLibraryUi()
 			end
 		end,
 	})
-	QueueSec:Toggle({
-		Name = "Auto queue solo (selected race)",
+	SoloSec:Toggle({
+		Name = "Auto queue solo",
 		Flag = "KpopAutoSolo",
 		Default = false,
 		Callback = function(v)
@@ -1296,14 +1291,14 @@ local function buildLibraryUi()
 		end,
 	})
 
-	local BotSec = Farm:Section({
-		Name = "Farm bot",
-		Description = "teleport only while Racing; drive only while Racing",
+	local PresetSec = Farm:Section({
+		Name = "Auto farm",
+		Description = "Turn on: solo queue, checkpoint chain, and V1 steer. Turn off: stops all of those together.",
 		Icon = "138827881557940",
 		Side = 1,
 	})
-	BotSec:Toggle({
-		Name = "Auto farm (solo queue + teleport + drive)",
+	PresetSec:Toggle({
+		Name = "Auto farm preset",
 		Flag = "KpopAutoFarm",
 		Default = false,
 		Callback = function(v)
@@ -1311,61 +1306,65 @@ local function buildLibraryUi()
 			if v then
 				automationState.teleportChain = true
 				automationState.autoQueueSolo = true
-				if not automationState.autoDriveV1 and not automationState.autoDriveV2 then
-					automationState.autoDriveV1 = true
-				end
+				automationState.autoDriveV2 = false
+				automationState.autoDriveV1 = true
+				syncLibFlag("KpopTpChain", true)
+				syncLibFlag("KpopAutoSolo", true)
+				syncLibFlag("KpopDriveV2", false)
+				syncLibFlag("KpopDriveV1", true)
+			else
+				automationState.teleportChain = false
+				automationState.autoQueueSolo = false
+				automationState.autoDriveV1 = false
+				automationState.autoDriveV2 = false
+				syncLibFlag("KpopTpChain", false)
+				syncLibFlag("KpopAutoSolo", false)
+				syncLibFlag("KpopDriveV1", false)
+				syncLibFlag("KpopDriveV2", false)
+				releaseAllVirtualKeys()
 			end
 		end,
 	})
-	BotSec:Toggle({
-		Name = "Checkpoint teleport chain",
+
+	local CpSec = Farm:Section({
+		Name = "Checkpoint route",
+		Description = "Only while Racing; uses TeleportCheckpoint remote",
+		Icon = "103180437044643",
+		Side = 1,
+	})
+	CpSec:Toggle({
+		Name = "Teleport chain",
 		Flag = "KpopTpChain",
 		Default = false,
 		Callback = function(v)
 			automationState.teleportChain = v
-		end,
-	})
-	BotSec:Toggle({
-		Name = "Auto drive V1 (hold steer)",
-		Flag = "KpopDriveV1",
-		Default = false,
-		Callback = function(v)
-			automationState.autoDriveV1 = v
-			if v then
-				automationState.autoDriveV2 = false
-			end
-			if not v and not automationState.autoDriveV2 then
-				releaseAllVirtualKeys()
-			end
-		end,
-	})
-	BotSec:Toggle({
-		Name = "Auto drive V2 (pulse steer)",
-		Flag = "KpopDriveV2",
-		Default = false,
-		Callback = function(v)
-			automationState.autoDriveV2 = v
-			if v then
+			if not v and automationState.autoFarm then
+				automationState.autoFarm = false
+				automationState.autoQueueSolo = false
 				automationState.autoDriveV1 = false
-			end
-			if not v and not automationState.autoDriveV1 then
+				automationState.autoDriveV2 = false
+				syncLibFlag("KpopAutoFarm", false)
+				syncLibFlag("KpopAutoSolo", false)
+				syncLibFlag("KpopDriveV1", false)
+				syncLibFlag("KpopDriveV2", false)
 				releaseAllVirtualKeys()
 			end
 		end,
 	})
-	BotSec:Toggle({
-		Name = "Guided fly to next checkpoint (no chain or auto farm)",
-		Flag = "KpopCpGuidedFly",
-		Default = false,
+	CpSec:Slider({
+		Name = "Min gap between teleports",
+		Flag = "KpopTpInterval",
+		Min = Config.TeleportCooldownSeconds,
+		Max = 20,
+		Default = Config.TeleportChainInterval,
+		Decimals = 2,
+		Suffix = "s",
 		Callback = function(v)
-			automationState.checkpointGuidedFly = v
-			if v then
-				releaseAllVirtualKeys()
-			end
+			Config.TeleportChainInterval = v
 		end,
 	})
-	BotSec:Slider({
-		Name = "Checkpoint dwell before next teleport",
+	CpSec:Slider({
+		Name = "Dwell at checkpoint center",
 		Flag = "KpopCpDwell",
 		Min = 0,
 		Max = 20,
@@ -1374,6 +1373,54 @@ local function buildLibraryUi()
 		Suffix = "s",
 		Callback = function(v)
 			Config.CheckpointDwellSeconds = v
+		end,
+	})
+
+	local AssistSec = Farm:Section({
+		Name = "Driver assist",
+		Description = "Virtual keys while Racing; guided fly needs chain and auto farm off",
+		Icon = "108839695397679",
+		Side = 1,
+	})
+	AssistSec:Toggle({
+		Name = "Auto drive V1 (hold steer)",
+		Flag = "KpopDriveV1",
+		Default = false,
+		Callback = function(v)
+			automationState.autoDriveV1 = v
+			if v then
+				automationState.autoDriveV2 = false
+				syncLibFlag("KpopDriveV2", false)
+			end
+			if not v and not automationState.autoDriveV2 then
+				releaseAllVirtualKeys()
+			end
+		end,
+	})
+	AssistSec:Toggle({
+		Name = "Auto drive V2 (pulse steer)",
+		Flag = "KpopDriveV2",
+		Default = false,
+		Callback = function(v)
+			automationState.autoDriveV2 = v
+			if v then
+				automationState.autoDriveV1 = false
+				syncLibFlag("KpopDriveV1", false)
+			end
+			if not v and not automationState.autoDriveV1 then
+				releaseAllVirtualKeys()
+			end
+		end,
+	})
+	AssistSec:Toggle({
+		Name = "Guided fly to next checkpoint",
+		Flag = "KpopCpGuidedFly",
+		Default = false,
+		Callback = function(v)
+			automationState.checkpointGuidedFly = v
+			if v then
+				releaseAllVirtualKeys()
+			end
 		end,
 	})
 
