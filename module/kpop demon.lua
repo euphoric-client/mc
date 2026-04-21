@@ -1791,15 +1791,7 @@ function KpopDemon.Start()
 		if not kpopScriptActive then
 			return
 		end
-		pcall(function()
-			if task.synchronize then
-				task.synchronize()
-			end
-			stepLiveLabels()
-		end)
-		if task.desynchronize then
-			task.desynchronize()
-		end
+		pcall(stepLiveLabels)
 	end)
 
 	scriptRenderConn = RunService.RenderStepped:Connect(function(dt)
