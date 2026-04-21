@@ -531,6 +531,31 @@ local function getQueueRegionCenter()
 	return nil
 end
 
+
+local function raceStateIsRacing(race)
+	if not race or not race.Folder then
+		return false
+	end
+	local st = race.Folder:FindFirstChild("State")
+	if not st or not st:IsA("StringValue") then
+		return false
+	end
+	return string.lower(st.Value) == "racing"
+end
+
+local function getLocalPlayerVehicleSeat()
+	local char = localPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local seat = hum and hum.SeatPart
+	if seat and seat:IsA("VehicleSeat") then
+		local car = seat:FindFirstAncestorWhichIsA("Model")
+		if car then
+			return car, seat
+		end
+	end
+	return nil, nil
+end
+
 -- Teleports the player's car to the race border/queue circle and holds it there
 -- until the race starts with other players.
 local function tryAutoQueueWithPlayers()
@@ -569,30 +594,6 @@ local function tryAutoQueueWithPlayers()
 			d.AssemblyAngularVelocity = Vector3.zero
 		end
 	end
-end
-
-local function raceStateIsRacing(race)
-	if not race or not race.Folder then
-		return false
-	end
-	local st = race.Folder:FindFirstChild("State")
-	if not st or not st:IsA("StringValue") then
-		return false
-	end
-	return string.lower(st.Value) == "racing"
-end
-
-local function getLocalPlayerVehicleSeat()
-	local char = localPlayer.Character
-	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	local seat = hum and hum.SeatPart
-	if seat and seat:IsA("VehicleSeat") then
-		local car = seat:FindFirstAncestorWhichIsA("Model")
-		if car then
-			return car, seat
-		end
-	end
-	return nil, nil
 end
 
 local function checkpointIndexFromInstanceName(name)
