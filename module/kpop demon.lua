@@ -114,6 +114,8 @@ local labels = {}
 local lastTeleportClock = 0
 local lastChainTeleportClock = 0
 local speedMultiplier = Config.SpeedMultiplierDefault
+local steeringSensitivity = Config.SteeringSensitivityDefault
+local lastSoloQueueClock = 0
 local characterConnections = {}
 local watchedRacesRoot = nil
 local tuneBaselines = {}
@@ -125,6 +127,8 @@ local automationState = {
 	teleportChain = false,
 	autoDriveV1 = false,
 	autoDriveV2 = false,
+	autoQueueSolo = false,
+	selectedRaceId = "Race5",
 }
 local steerPulseAccum = 0
 local keysVirtualDown = {
@@ -133,7 +137,16 @@ local keysVirtualDown = {
 	[Enum.KeyCode.D] = false,
 }
 
-local TUNE_MULT_KEYS = { "Horsepower", "E_Horsepower", "E_Torque" }
+local POWER_KEYS = {
+	Horsepower = true,
+	E_Horsepower = true,
+	E_Torque = true,
+}
+local STEER_KEYS = {
+	SteerSpeed = true,
+	SteerRatio = true,
+	MinSteer = true,
+}
 
 local function automationAllowed()
 	if not Config.AllowClientAutomation then
@@ -240,7 +253,13 @@ end
 
 local function captureBaseline(tuneScript, tune)
 	local b = {}
-	for _, key in TUNE_MULT_KEYS do
+	for key in POWER_KEYS do
+		local v = tune[key]
+		if type(v) == "number" then
+			b[key] = v
+		end
+	end
+	for key in STEER_KEYS do
 		local v = tune[key]
 		if type(v) == "number" then
 			b[key] = v
@@ -254,31 +273,38 @@ local function restoreTuneToBaseline(tuneScript, tune)
 	if not b or not tune then
 		return
 	end
-	for _, key in TUNE_MULT_KEYS do
-		if b[key] ~= nil then
-			tune[key] = b[key]
-		end
+	for key, base in b do
+		tune[key] = base
 	end
 end
 
-local function applyTuneMultiplier(tuneScript, tune, mult)
-	if not Config.ApplySpeedMultiplierToChassisTune then
+local function reapplyVehicleTune()
+	if not lastTuneScript then
 		return
 	end
-	if not tuneBaselines[tuneScript] then
-		captureBaseline(tuneScript, tune)
+	if not (Config.ApplySpeedMultiplierToChassisTune or Config.ApplySteeringTune) then
+		return
 	end
-	local b = tuneBaselines[tuneScript]
-	for _, key in TUNE_MULT_KEYS do
-		local base = b[key]
-		if type(base) == "number" then
-			tune[key] = base * mult
+	local ok, tune = pcall(require, lastTuneScript)
+	if not ok or typeof(tune) ~= "table" then
+		return
+	end
+	restoreTuneToBaseline(lastTuneScript, tune)
+	local b = tuneBaselines[lastTuneScript]
+	if not b then
+		return
+	end
+	for key, base in b do
+		if POWER_KEYS[key] and Config.ApplySpeedMultiplierToChassisTune and type(base) == "number" then
+			tune[key] = base * speedMultiplier
+		elseif STEER_KEYS[key] and Config.ApplySteeringTune and type(base) == "number" then
+			tune[key] = base * steeringSensitivity
 		end
 	end
 end
 
 local function bindVehicleTuneForSeat(carModel)
-	if not Config.ApplySpeedMultiplierToChassisTune then
+	if not (Config.ApplySpeedMultiplierToChassisTune or Config.ApplySteeringTune) then
 		return
 	end
 	local tuneScript = findTuneModule(carModel)
@@ -299,7 +325,7 @@ local function bindVehicleTuneForSeat(carModel)
 	if not tuneBaselines[tuneScript] then
 		captureBaseline(tuneScript, tune)
 	end
-	applyTuneMultiplier(tuneScript, tune, speedMultiplier)
+	reapplyVehicleTune()
 end
 
 local function clearVehicleTuneBinding()
@@ -353,6 +379,76 @@ local function countWorkspaceRaceFolders()
 		end
 	end
 	return n
+end
+
+local function listSelectableRaceIds()
+	local seen = {}
+	local ordered = {}
+	local root = Workspace:FindFirstChild("Races")
+	if root then
+		for _, c in root:GetChildren() do
+			if c:IsA("Folder") and c:FindFirstChild("QueueRegion") and not seen[c.Name] then
+				seen[c.Name] = true
+				table.insert(ordered, c.Name)
+			end
+		end
+	end
+	for id in pairs(Config.Races) do
+		if not seen[id] then
+			seen[id] = true
+			table.insert(ordered, id)
+		end
+	end
+	table.sort(ordered)
+	return ordered
+end
+
+local function getRacePhaseText()
+	local r = ClientRace.ClientRace
+	if r and r.Folder then
+		local st = r.Folder:FindFirstChild("State")
+		if st and st:IsA("StringValue") then
+			return st.Value
+		end
+	end
+	if Races.GetRaceFromPlayer(localPlayer) then
+		return "lobby"
+	end
+	return "idle"
+end
+
+local function inDriveSeatForRace()
+	local hum = localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid")
+	local s = hum and hum.SeatPart
+	return s and s:IsA("VehicleSeat") and s.Name == "DriveSeat"
+end
+
+local function tryAutoSoloQueue()
+	if not automationState.autoQueueSolo then
+		return
+	end
+	if not automationAllowed() then
+		return
+	end
+	if ClientRace.IsInRace then
+		return
+	end
+	if Races.GetRaceFromPlayer(localPlayer) then
+		return
+	end
+	if not inDriveSeatForRace() then
+		return
+	end
+	local rid = automationState.selectedRaceId
+	if type(rid) ~= "string" or rid == "" then
+		return
+	end
+	local now = os.clock()
+	if now - lastSoloQueueClock < Config.SoloQueueCooldownSeconds then
+		return
+	end
+	lastSoloQueueClock = now
+	Network.FireServer("StartSoloRace", rid)
 end
 
 local function getCheckpointWorldPosition(race, entry)
@@ -417,12 +513,16 @@ end
 local function setSpeedMultiplier(newVal)
 	newVal = clampSpeedMultiplier(newVal)
 	speedMultiplier = newVal
-	if lastTuneScript and Config.ApplySpeedMultiplierToChassisTune then
-		local ok, tune = pcall(require, lastTuneScript)
-		if ok and typeof(tune) == "table" then
-			applyTuneMultiplier(lastTuneScript, tune, speedMultiplier)
-		end
-	end
+	reapplyVehicleTune()
+end
+
+local function clampSteeringSensitivity(v)
+	return math.clamp(v, Config.SteeringSensitivityMin, Config.SteeringSensitivityMax)
+end
+
+local function setSteeringSensitivity(newVal)
+	steeringSensitivity = clampSteeringSensitivity(newVal)
+	reapplyVehicleTune()
 end
 
 local function nudgeSpeedMultiplier(delta)
@@ -568,67 +668,209 @@ local function buildLibraryUi()
 		Logo = "120959262762131",
 	})
 
-	Window:Category("Telemetry")
-	local Dash = Window:Page({
-		Name = "Dashboard",
+	local raceIds = listSelectableRaceIds()
+	if #raceIds == 0 then
+		table.insert(raceIds, "Race5")
+	end
+	local defaultRace = raceIds[1]
+	for _, id in ipairs(raceIds) do
+		if id == automationState.selectedRaceId then
+			defaultRace = id
+			break
+		end
+	end
+	automationState.selectedRaceId = defaultRace
+
+	Window:Category("Overview")
+	local Overview = Window:Page({
+		Name = "Status",
 		Icon = "123944728972740",
 	})
-	local DashSection = Dash:Section({
-		Name = "Live",
-		Description = "speed, race, checkpoints",
+	local Live = Overview:Section({
+		Name = "Race session",
+		Description = "phase, speed, checkpoints",
 		Icon = "138827881557940",
 		Side = 1,
 	})
+	labels.phase = Live:Label("phase: idle")
+	labels.mult = Live:Label("tune mult: —")
+	labels.speed = Live:Label("speed: —")
+	labels.tune = Live:Label("tune: —")
+	labels.race = Live:Label("lobby race: —")
+	labels.racesCount = Live:Label("workspace races: —")
+	labels.state = Live:Label("active: —")
+	labels.checkpoint = Live:Label("checkpoint: —")
 
-	labels.mult = DashSection:Label("speed mult: x1.00")
-	labels.speed = DashSection:Label("speed: —")
-	labels.tune = DashSection:Label("tune: —")
-	labels.race = DashSection:Label("lobby race: —")
-	labels.racesCount = DashSection:Label("workspace races: —")
-	labels.state = DashSection:Label("active: —")
-	labels.checkpoint = DashSection:Label("checkpoint: —")
-
-	DashSection:Slider({
-		Name = "Speed multiplier",
+	Window:Category("Tuning")
+	local TunePage = Window:Page({
+		Name = "Drive",
+		Icon = "134236649319095",
+	})
+	local PowerSec = TunePage:Section({
+		Name = "Power",
+		Description = "Horsepower, E_Horsepower, E_Torque vs baselines",
+		Icon = "108839695397679",
+		Side = 1,
+	})
+	PowerSec:Toggle({
+		Name = "Apply power multiplier to chassis tune",
+		Flag = "KpopApplyPowerTune",
+		Default = Config.ApplySpeedMultiplierToChassisTune,
+		Callback = function(v)
+			Config.ApplySpeedMultiplierToChassisTune = v
+			reapplyVehicleTune()
+		end,
+	})
+	PowerSec:Slider({
+		Name = "Speed (power) multiplier",
 		Flag = "KpopSpeedMult",
 		Min = Config.SpeedMultiplierMin,
 		Max = Config.SpeedMultiplierMax,
-		Default = Config.SpeedMultiplierDefault,
+		Default = speedMultiplier,
 		Decimals = 2,
 		Suffix = "x",
 		Callback = function(v)
 			setSpeedMultiplier(v)
 		end,
 	})
-
-	Window:Category("Automation")
-	local Auto = Window:Page({
-		Name = "Farm",
-		Icon = "108839695397679",
-	})
-	local AutoSection = Auto:Section({
-		Name = "Races",
-		Description = "Race5–Race9 and all lobbies use the same checkpoint pipeline",
+	local SteerSec = TunePage:Section({
+		Name = "Steering",
+		Description = "SteerSpeed, SteerRatio, MinSteer vs baselines",
 		Icon = "126497581491926",
 		Side = 1,
 	})
+	SteerSec:Toggle({
+		Name = "Apply steering sensitivity to chassis tune",
+		Flag = "KpopApplySteerTune",
+		Default = Config.ApplySteeringTune,
+		Callback = function(v)
+			Config.ApplySteeringTune = v
+			reapplyVehicleTune()
+		end,
+	})
+	SteerSec:Slider({
+		Name = "Steering sensitivity",
+		Flag = "KpopSteerSens",
+		Min = Config.SteeringSensitivityMin,
+		Max = Config.SteeringSensitivityMax,
+		Default = steeringSensitivity,
+		Decimals = 2,
+		Suffix = "x",
+		Callback = function(v)
+			setSteeringSensitivity(v)
+		end,
+	})
+	local AutoInputSec = TunePage:Section({
+		Name = "Automation timing",
+		Description = "teleport cadence and virtual steer pulses",
+		Icon = "103180437044643",
+		Side = 1,
+	})
+	AutoInputSec:Slider({
+		Name = "Teleport chain interval",
+		Flag = "KpopTpInterval",
+		Min = Config.TeleportCooldownSeconds,
+		Max = 20,
+		Default = Config.TeleportChainInterval,
+		Decimals = 2,
+		Suffix = "s",
+		Callback = function(v)
+			Config.TeleportChainInterval = v
+		end,
+	})
+	AutoInputSec:Slider({
+		Name = "Auto drive V1 steer pulse",
+		Flag = "KpopV1Pulse",
+		Min = 0.02,
+		Max = 0.35,
+		Default = Config.AutoDriveV1SteerPulse,
+		Decimals = 3,
+		Suffix = "s",
+		Callback = function(v)
+			Config.AutoDriveV1SteerPulse = v
+		end,
+	})
+	AutoInputSec:Slider({
+		Name = "Auto drive V2 steer pulse",
+		Flag = "KpopV2Pulse",
+		Min = 0.02,
+		Max = 0.25,
+		Default = Config.AutoDriveV2SteerPulse,
+		Decimals = 3,
+		Suffix = "s",
+		Callback = function(v)
+			Config.AutoDriveV2SteerPulse = v
+		end,
+	})
+	AutoInputSec:Slider({
+		Name = "Min distance before full throttle",
+		Flag = "KpopThrottleDist",
+		Min = 8,
+		Max = 200,
+		Default = Config.AutoDriveMinThrottleDistance,
+		Decimals = 0,
+		Suffix = "stu",
+		Callback = function(v)
+			Config.AutoDriveMinThrottleDistance = v
+		end,
+	})
 
-	AutoSection:Toggle({
-		Name = "Auto farm (teleport + drive)",
+	Window:Category("Farm")
+	local Farm = Window:Page({
+		Name = "Auto",
+		Icon = "108839695397679",
+	})
+	local QueueSec = Farm:Section({
+		Name = "Queue",
+		Description = "StartSoloRace with RaceId",
+		Icon = "126497581491926",
+		Side = 1,
+	})
+	QueueSec:Dropdown({
+		Name = "Race to run",
+		Flag = "KpopRacePick",
+		Default = defaultRace,
+		Items = raceIds,
+		Multi = false,
+		Callback = function(v)
+			if type(v) == "string" then
+				automationState.selectedRaceId = v
+			elseif type(v) == "table" and v[1] then
+				automationState.selectedRaceId = v[1]
+			end
+		end,
+	})
+	QueueSec:Toggle({
+		Name = "Auto queue solo (selected race)",
+		Flag = "KpopAutoSolo",
+		Default = false,
+		Callback = function(v)
+			automationState.autoQueueSolo = v
+		end,
+	})
+
+	local BotSec = Farm:Section({
+		Name = "Farm bot",
+		Description = "teleport only while Racing; drive only while Racing",
+		Icon = "138827881557940",
+		Side = 1,
+	})
+	BotSec:Toggle({
+		Name = "Auto farm (solo queue + teleport + drive)",
 		Flag = "KpopAutoFarm",
 		Default = false,
 		Callback = function(v)
 			automationState.autoFarm = v
 			if v then
 				automationState.teleportChain = true
+				automationState.autoQueueSolo = true
 				if not automationState.autoDriveV1 and not automationState.autoDriveV2 then
 					automationState.autoDriveV1 = true
 				end
 			end
 		end,
 	})
-
-	AutoSection:Toggle({
+	BotSec:Toggle({
 		Name = "Checkpoint teleport chain",
 		Flag = "KpopTpChain",
 		Default = false,
@@ -636,8 +878,7 @@ local function buildLibraryUi()
 			automationState.teleportChain = v
 		end,
 	})
-
-	AutoSection:Toggle({
+	BotSec:Toggle({
 		Name = "Auto drive V1 (hold steer)",
 		Flag = "KpopDriveV1",
 		Default = false,
@@ -651,8 +892,7 @@ local function buildLibraryUi()
 			end
 		end,
 	})
-
-	AutoSection:Toggle({
+	BotSec:Toggle({
 		Name = "Auto drive V2 (pulse steer)",
 		Flag = "KpopDriveV2",
 		Default = false,
@@ -667,22 +907,9 @@ local function buildLibraryUi()
 		end,
 	})
 
-	AutoSection:Slider({
-		Name = "Teleport chain interval",
-		Flag = "KpopTpInterval",
-		Min = Config.TeleportCooldownSeconds,
-		Max = 20,
-		Default = Config.TeleportChainInterval,
-		Decimals = 2,
-		Suffix = "s",
-		Callback = function(v)
-			Config.TeleportChainInterval = v
-		end,
-	})
-
 	Library:Notification({
 		Title = "kpop demon",
-		Description = "Library loaded. Use menu key or RightControl.",
+		Description = "Home or PageUp toggles menu.",
 		Duration = 4,
 		Icon = "73789337996373",
 	})
@@ -716,7 +943,10 @@ function KpopDemon.Start()
 		if processed then
 			return
 		end
-		if input.KeyCode == Hotkeys.ToggleHud and mainWindow then
+		if
+			mainWindow
+			and (input.KeyCode == Hotkeys.ToggleHud or input.KeyCode == Hotkeys.ToggleMenu)
+		then
 			mainWindow:SetOpen(not mainWindow.IsOpen)
 		elseif input.KeyCode == Hotkeys.TeleportCheckpoint then
 			tryTeleportCheckpointManual()
@@ -767,22 +997,29 @@ function KpopDemon.Start()
 	task.spawn(function()
 		while true do
 			task.wait(0.2)
-			if
-				automationAllowed()
-				and (automationState.teleportChain or automationState.autoFarm)
-			then
-				tryTeleportCheckpointChain()
+			if automationAllowed() then
+				if automationState.autoQueueSolo then
+					tryAutoSoloQueue()
+				end
+				if automationState.teleportChain or automationState.autoFarm then
+					tryTeleportCheckpointChain()
+				end
 			end
 		end
 	end)
 
 	RunService.RenderStepped:Connect(function(dt)
+		if labels.phase then
+			labels.phase:SetText("phase: " .. getRacePhaseText())
+		end
 		if labels.mult then
 			labels.mult:SetText(
 				string.format(
-					"speed mult: x%.2f (%s chassis)",
+					"power x%.2f (%s) | steer x%.2f (%s)",
 					speedMultiplier,
-					Config.ApplySpeedMultiplierToChassisTune and "on" or "off"
+					Config.ApplySpeedMultiplierToChassisTune and "on" or "off",
+					steeringSensitivity,
+					Config.ApplySteeringTune and "on" or "off"
 				)
 			)
 		end
