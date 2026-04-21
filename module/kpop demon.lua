@@ -449,12 +449,6 @@ end
 
 local function racerEntryForLocalPlayer()
 	local race = ClientRace.ClientRace
-	if not race then
-		local car = select(1, getLocalPlayerVehicleSeat())
-		if car then
-			race = Races.GetRaceFromVehicle(car)
-		end
-	end
 	if not race or not race.Racers then
 		return nil, nil
 	end
@@ -500,12 +494,6 @@ end
 
 local function getRacePhaseText()
 	local r = ClientRace.ClientRace
-	if not r then
-		local car = select(1, getLocalPlayerVehicleSeat())
-		if car then
-			r = Races.GetRaceFromVehicle(car)
-		end
-	end
 	if r and r.Folder then
 		local st = r.Folder:FindFirstChild("State")
 		if st and st:IsA("StringValue") then
@@ -521,7 +509,7 @@ end
 local function inDriveSeatForRace()
 	local hum = localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid")
 	local s = hum and hum.SeatPart
-	return s and s:IsA("VehicleSeat") and s.Name == "DriveSeat"
+	return s and s:IsA("VehicleSeat")
 end
 
 local function tryAutoSoloQueue()
@@ -837,28 +825,19 @@ end
 local function deferCheckpointSnapAfterServer(capturedCf)
 	task.defer(function()
 		local cf = capturedCf
-		local r = ClientRace.ClientRace
-		if not r then
-			local car = select(1, getLocalPlayerVehicleSeat())
-			if car then
-				r = Races.GetRaceFromVehicle(car)
+		for _ = 1, 16 do
+			local race, entry = racerEntryForLocalPlayer()
+			if race and entry then
+				if not cf then
+					cf = getCheckpointTargetCFrame(race, entry)
+				end
+				if cf then
+					chainHoldTargetCf = cf
+					snapLocalVehicleToTargetCFrame(cf)
+					return
+				end
 			end
-		end
-		local e = r and r.Racers and findRacerEntryInFolder(r.Racers)
-		if not r or not e then
-			return
-		end
-		if not cf then
-			task.wait(0.1)
-			cf = getCheckpointTargetCFrame(r, e)
-		end
-		if not cf then
-			task.wait(0.2)
-			cf = getCheckpointTargetCFrame(r, e)
-		end
-		if cf then
-			chainHoldTargetCf = cf
-			snapLocalVehicleToTargetCFrame(cf)
+			task.wait(0.05)
 		end
 	end)
 end
@@ -1047,12 +1026,6 @@ local function carNoclipWantActive()
 	end
 	if automationState.autoNoclipWhileRacing then
 		local race = ClientRace.ClientRace
-		if not race then
-			local car = select(1, getLocalPlayerVehicleSeat())
-			if car then
-				race = Races.GetRaceFromVehicle(car)
-			end
-		end
 		return race ~= nil and raceStateIsRacing(race)
 	end
 	return false
