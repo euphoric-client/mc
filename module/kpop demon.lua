@@ -116,6 +116,8 @@ local lastChainTeleportClock = 0
 local speedMultiplier = Config.SpeedMultiplierDefault
 local steeringSensitivity = Config.SteeringSensitivityDefault
 local lastSoloQueueClock = 0
+local lastWithPlayerQueueClock = 0
+local chainFinishWaitUntil = nil -- set when we need to wait 2 min before teleporting to Finish
 local characterConnections = {}
 local function disconnectAllCharacterSignals()
 	for _, c in characterConnections do
@@ -141,6 +143,7 @@ local automationState = {
 	autoDriveV1 = false,
 	autoDriveV2 = false,
 	autoQueueSolo = false,
+	autoQueueWithPlayers = false,
 	selectedRaceId = "Race5",
 	carNoclip = false,
 	autoNoclipWhileRacing = true,
@@ -515,6 +518,64 @@ local function tryAutoSoloQueue()
 	Network.FireServer("StartSoloRace", rid)
 end
 
+-- Returns the center position of the QueueRegion for the selected race, or nil
+local function getQueueRegionCenter()
+	local rid = automationState.selectedRaceId
+	if type(rid) ~= "string" or rid == "" then return nil end
+	local raceFolder = Workspace:FindFirstChild("Races") and Workspace.Races:FindFirstChild(rid)
+	if not raceFolder then return nil end
+	local qr = raceFolder:FindFirstChild("QueueRegion")
+	if qr and qr:IsA("BasePart") then
+		return qr.Position
+	end
+	return nil
+end
+
+-- Keeps the player's car inside the race border/queue circle until the race starts.
+-- Fires periodically to nudge the car back to the queue center if it drifted.
+local function tryAutoQueueWithPlayers()
+	if not automationState.autoQueueWithPlayers then
+		return
+	end
+	if not automationAllowed() then
+		return
+	end
+	-- If already in a race, do nothing (race started or still racing)
+	if raceStateIsRacing(ClientRace.ClientRace) then
+		return
+	end
+	local now = os.clock()
+	if now - lastWithPlayerQueueClock < 1.5 then
+		return
+	end
+	lastWithPlayerQueueClock = now
+	local qPos = getQueueRegionCenter()
+	if not qPos then return end
+	local car, seat = getLocalPlayerVehicleSeat()
+	if not car or not seat then return end
+	-- Nudge the car to stay at the queue circle center (slightly above to avoid ground clip)
+	local targetPos = qPos + Vector3.new(0, 4, 0)
+	local current = seat.Position
+	local dist = (current - targetPos).Magnitude
+	if dist > 8 then
+		-- Teleport car back to queue region center
+		local pivot = car:GetPivot()
+		local seatW = seat.CFrame
+		local newSeat = CFrame.new(targetPos)
+		local newPivot = newSeat * seatW:Inverse() * pivot
+		pcall(function()
+			car:PivotTo(newPivot)
+		end)
+		-- Zero velocity so it doesn't slide
+		for _, d in car:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.AssemblyLinearVelocity = Vector3.zero
+				d.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+	end
+end
+
 local function raceStateIsRacing(race)
 	if not race or not race.Folder then
 		return false
@@ -558,6 +619,41 @@ local function checkpointIndexFromInstanceName(name)
 	return nil
 end
 
+local function isFinishCheckpointName(name)
+	if type(name) ~= "string" then return false end
+	local low = string.lower(name)
+	return low == "finish" or low == "finishline" or low == "finish_line" or low == "end" or low == "goal"
+end
+
+-- Returns the highest numbered checkpoint index in the race's Checkpoints folder
+local function getMaxCheckpointIndex(holder)
+	if not holder then return 0 end
+	local maxN = 0
+	for _, ch in holder:GetChildren() do
+		local n = checkpointIndexFromInstanceName(ch.Name)
+		if n and n > maxN then
+			maxN = n
+		end
+	end
+	return maxN
+end
+
+-- Returns the Finish checkpoint instance if it exists
+local function findFinishCheckpointInstance(holder)
+	if not holder then return nil end
+	for _, ch in holder:GetChildren() do
+		if isFinishCheckpointName(ch.Name) then
+			return ch
+		end
+	end
+	for _, ch in holder:GetDescendants() do
+		if isFinishCheckpointName(ch.Name) then
+			return ch
+		end
+	end
+	return nil
+end
+
 local function findCheckpointInstanceForNext(race, entry)
 	if not race or not entry then
 		return nil
@@ -572,18 +668,24 @@ local function findCheckpointInstanceForNext(race, entry)
 	end
 	local cur = tonumber(entry:GetAttribute("Checkpoint")) or 0
 	local nextNum = cur + 1
-	local function matches(ch)
+	local function matchesNum(ch)
 		return checkpointIndexFromInstanceName(ch.Name) == nextNum
 	end
 	for _, ch in holder:GetChildren() do
-		if matches(ch) then
+		if matchesNum(ch) then
 			return ch
 		end
 	end
 	for _, ch in holder:GetDescendants() do
-		if matches(ch) then
+		if matchesNum(ch) then
 			return ch
 		end
+	end
+	-- No numbered checkpoint found — check if we're at the last checkpoint and should go to Finish
+	local maxN = getMaxCheckpointIndex(holder)
+	if cur >= maxN and maxN > 0 then
+		-- We've completed all numbered checkpoints; return the Finish checkpoint
+		return findFinishCheckpointInstance(holder)
 	end
 	return nil
 end
@@ -746,13 +848,26 @@ local function checkpointChainGapSeconds()
 	return math.max(cd, rate)
 end
 
+local function isNextCheckpointFinish(race, entry)
+	if not race or not entry then return false end
+	local folder = race.Folder
+	if not folder then return false end
+	local holder = folder:FindFirstChild("Checkpoints")
+	if not holder then return false end
+	local cur = tonumber(entry:GetAttribute("Checkpoint")) or 0
+	local maxN = getMaxCheckpointIndex(holder)
+	return cur >= maxN and maxN > 0 and findFinishCheckpointInstance(holder) ~= nil
+end
+
 local function tryTeleportCheckpointChain()
 	local race, entry = racerEntryForLocalPlayer()
 	if not race or not entry then
+		chainFinishWaitUntil = nil
 		return
 	end
 	if not raceStateIsRacing(race) then
 		lastChainTeleportClock = -1e9
+		chainFinishWaitUntil = nil
 		return
 	end
 	local car, seat = getLocalPlayerVehicleSeat()
@@ -760,6 +875,22 @@ local function tryTeleportCheckpointChain()
 		return
 	end
 	local now = os.clock()
+
+	-- Check if the NEXT teleport would be to the Finish line
+	if isNextCheckpointFinish(race, entry) then
+		-- Start the 2-minute wait timer if not already waiting
+		if not chainFinishWaitUntil then
+			chainFinishWaitUntil = now + 120 -- 2 minutes
+		end
+		-- Don't teleport until the wait is over
+		if now < chainFinishWaitUntil then
+			return
+		end
+		chainFinishWaitUntil = nil
+	else
+		chainFinishWaitUntil = nil
+	end
+
 	local gap = checkpointChainGapSeconds()
 	if gap > 0 and (now - lastChainTeleportClock) < gap then
 		return
@@ -1291,6 +1422,14 @@ local function buildLibraryUi()
 			automationState.autoQueueSolo = v
 		end,
 	})
+	SoloSec:Toggle({
+		Name = "Auto queue with players (stay in border circle)",
+		Flag = "KpopAutoQueuePlayers",
+		Default = false,
+		Callback = function(v)
+			automationState.autoQueueWithPlayers = v
+		end,
+	})
 
 	local PresetSec = Farm:Section({
 		Name = "Auto farm",
@@ -1586,6 +1725,9 @@ function KpopDemon.Start()
 			if automationAllowed() then
 				if automationState.autoQueueSolo then
 					tryAutoSoloQueue()
+				end
+				if automationState.autoQueueWithPlayers then
+					tryAutoQueueWithPlayers()
 				end
 				if automationState.teleportChain or automationState.autoFarm then
 					tryTeleportCheckpointChain()
