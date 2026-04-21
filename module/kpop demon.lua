@@ -426,39 +426,12 @@ local function readTuneSnapshot(carModel)
 	}
 end
 
-local function findRacerEntryInFolder(racersFolder)
-	if not racersFolder then
-		return nil
-	end
-	local want = localPlayer.Name
-	local direct = racersFolder:FindFirstChild(want)
-	if direct then
-		return direct
-	end
-	local wl = string.lower(want)
-	for _, ch in racersFolder:GetChildren() do
-		if ch:IsA("ObjectValue") and ch.Value == localPlayer then
-			return ch
-		end
-		if string.lower(ch.Name) == wl then
-			return ch
-		end
-	end
-	return nil
-end
-
 local function racerEntryForLocalPlayer()
 	local race = ClientRace.ClientRace
 	if not race then
-		local car = select(1, getLocalPlayerVehicleSeat())
-		if car then
-			race = Races.GetRaceFromVehicle(car)
-		end
-	end
-	if not race or not race.Racers then
 		return nil, nil
 	end
-	local entry = findRacerEntryInFolder(race.Racers)
+	local entry = race.Racers:FindFirstChild(localPlayer.Name)
 	return race, entry
 end
 
@@ -500,12 +473,6 @@ end
 
 local function getRacePhaseText()
 	local r = ClientRace.ClientRace
-	if not r then
-		local car = select(1, getLocalPlayerVehicleSeat())
-		if car then
-			r = Races.GetRaceFromVehicle(car)
-		end
-	end
 	if r and r.Folder then
 		local st = r.Folder:FindFirstChild("State")
 		if st and st:IsA("StringValue") then
@@ -834,35 +801,6 @@ local function nudgeSpeedMultiplier(delta)
 	setSpeedMultiplier(speedMultiplier + delta)
 end
 
-local function deferCheckpointSnapAfterServer(capturedCf)
-	task.defer(function()
-		local cf = capturedCf
-		local r = ClientRace.ClientRace
-		if not r then
-			local car = select(1, getLocalPlayerVehicleSeat())
-			if car then
-				r = Races.GetRaceFromVehicle(car)
-			end
-		end
-		local e = r and r.Racers and findRacerEntryInFolder(r.Racers)
-		if not r or not e then
-			return
-		end
-		if not cf then
-			task.wait(0.1)
-			cf = getCheckpointTargetCFrame(r, e)
-		end
-		if not cf then
-			task.wait(0.2)
-			cf = getCheckpointTargetCFrame(r, e)
-		end
-		if cf then
-			chainHoldTargetCf = cf
-			snapLocalVehicleToTargetCFrame(cf)
-		end
-	end)
-end
-
 local function tryTeleportCheckpointManual()
 	local race, entry = racerEntryForLocalPlayer()
 	if not race or not entry then
@@ -879,6 +817,9 @@ local function tryTeleportCheckpointManual()
 		return
 	end
 	local targetCf = getCheckpointTargetCFrame(race, entry)
+	if not targetCf then
+		return
+	end
 	local now = os.clock()
 	if now - lastTeleportClock < Config.TeleportCooldownSeconds then
 		return
@@ -886,7 +827,10 @@ local function tryTeleportCheckpointManual()
 	lastTeleportClock = now
 	lastChainTeleportClock = now
 	Network.FireServer("TeleportCheckpoint")
-	deferCheckpointSnapAfterServer(targetCf)
+	task.defer(function()
+		chainHoldTargetCf = targetCf
+		snapLocalVehicleToTargetCFrame(targetCf)
+	end)
 end
 
 local function checkpointChainIntervalSeconds()
@@ -922,6 +866,9 @@ local function tryTeleportCheckpointChain()
 		return
 	end
 	local targetCf = getCheckpointTargetCFrame(race, entry)
+	if not targetCf then
+		return
+	end
 	local now = os.clock()
 	local gap = checkpointChainIntervalSeconds()
 	if (now - lastChainTeleportClock) < gap then
@@ -930,7 +877,10 @@ local function tryTeleportCheckpointChain()
 	lastChainTeleportClock = now
 	lastTeleportClock = now
 	Network.FireServer("TeleportCheckpoint")
-	deferCheckpointSnapAfterServer(targetCf)
+	task.defer(function()
+		chainHoldTargetCf = targetCf
+		snapLocalVehicleToTargetCFrame(targetCf)
+	end)
 end
 
 local function driveSeatCFrame(car)
@@ -1047,12 +997,6 @@ local function carNoclipWantActive()
 	end
 	if automationState.autoNoclipWhileRacing then
 		local race = ClientRace.ClientRace
-		if not race then
-			local car = select(1, getLocalPlayerVehicleSeat())
-			if car then
-				race = Races.GetRaceFromVehicle(car)
-			end
-		end
 		return race ~= nil and raceStateIsRacing(race)
 	end
 	return false
@@ -1180,7 +1124,7 @@ local function holdCheckpointSnapIfChaining()
 		chainHoldTargetCf = nil
 		return
 	end
-	local holdCf = chainHoldTargetCf or getCheckpointTargetCFrame(race, entry)
+	local holdCf = chainHoldTargetCf
 	if not holdCf then
 		return
 	end
