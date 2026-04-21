@@ -55,6 +55,7 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local VirtualUser = game:GetService("VirtualUser")
 
 local Modules = ReplicatedStorage:WaitForChild("Modules")
 local ClientRace = require(Modules.Client.ClientRace)
@@ -136,6 +137,7 @@ local scriptInputConn = nil
 local scriptRenderConn = nil
 local scriptCharacterAddedConn = nil
 local scriptWorkspaceRacesConn = nil
+local scriptIdledConn = nil
 local raceFolderAddedConn = nil
 local raceFolderRemovedConn = nil
 local automationState = {
@@ -151,7 +153,6 @@ local automationState = {
 	carFly = false,
 	checkpointGuidedFly = false,
 	antiAfk = false,
-	antiAfkActive = false,
 }
 local noclipBaselineByPart = {}
 local noclipBoundCar = nil
@@ -1258,6 +1259,10 @@ local function kpopPerformUnload()
 		scriptWorkspaceRacesConn:Disconnect()
 		scriptWorkspaceRacesConn = nil
 	end
+	if scriptIdledConn then
+		scriptIdledConn:Disconnect()
+		scriptIdledConn = nil
+	end
 	unbindRaceFolderWatchers()
 	disconnectAllCharacterSignals()
 	restoreCarNoclipBaselines()
@@ -1525,7 +1530,7 @@ local function buildLibraryUi()
 
 	local AntiAfkSec = Farm:Section({
 		Name = "Anti AFK",
-		Description = "Holds W for 3 seconds every minute",
+		Description = "Bypasses 20 minute idle disconnect",
 		Icon = "126497581491926",
 		Side = 1,
 	})
@@ -1808,19 +1813,13 @@ function KpopDemon.Start()
 		end
 	end)
 
-	task.spawn(function()
-		while kpopScriptActive do
-			task.wait(60)
-			if not kpopScriptActive then
-				break
-			end
-			if automationState.antiAfk then
-				automationState.antiAfkActive = true
-				sendKey(Enum.KeyCode.W, true)
-				task.wait(3)
-				sendKey(Enum.KeyCode.W, false)
-				automationState.antiAfkActive = false
-			end
+	scriptIdledConn = localPlayer.Idled:Connect(function()
+		if not kpopScriptActive then
+			return
+		end
+		if automationState.antiAfk then
+			VirtualUser:CaptureController()
+			VirtualUser:ClickButton2(Vector2.new(0, 0))
 		end
 	end)
 
@@ -1939,7 +1938,7 @@ function KpopDemon.Start()
 			)
 		if wantDrive then
 			runAutoDriveStep(dt)
-		elseif not flyOn and not guidedOn and not automationState.antiAfkActive then
+		elseif not flyOn and not guidedOn then
 			releaseAllVirtualKeys()
 		end
 	end)
