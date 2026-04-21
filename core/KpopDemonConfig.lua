@@ -27,7 +27,7 @@ return {
 	RequireStudioForAutomation = false,
 	TeleportEverySeconds = 2.5,
 	TeleportEverySecondsMin = 0.35,
-	TeleportEverySecondsMax = 45,
+	TeleportEverySecondsMax = 120,
 	TeleportChainInterval = 2.5,
 	CheckpointDwellSeconds = 2.5,
 	AutoDriveV1SteerPulse = 0.08,

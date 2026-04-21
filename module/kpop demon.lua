@@ -115,6 +115,7 @@ local lastTeleportClock = 0
 local lastChainTeleportClock = 0
 local lastChainRaceAnchor = nil
 local lastHoldResnapClock = 0
+local chainHoldTargetCf = nil
 local speedMultiplier = Config.SpeedMultiplierDefault
 local steeringSensitivity = Config.SteeringSensitivityDefault
 local lastSoloQueueClock = 0
@@ -133,6 +134,7 @@ local mainWindow = nil
 local kpopScriptActive = false
 local scriptInputConn = nil
 local scriptRenderConn = nil
+local scriptUiConn = nil
 local scriptCharacterAddedConn = nil
 local scriptWorkspaceRacesConn = nil
 local raceFolderAddedConn = nil
@@ -560,6 +562,79 @@ local function checkpointIndexFromInstanceName(name)
 	return nil
 end
 
+local function getRaceCheckpointPartsFolder(raceFolder)
+	if not raceFolder then
+		return nil
+	end
+	for _, ch in raceFolder:GetChildren() do
+		if ch.Name == "Checkpoints" and ch:IsA("Folder") then
+			return ch
+		end
+	end
+	return nil
+end
+
+local function getRaceCheckpointTotalCount(raceFolder)
+	if not raceFolder then
+		return nil
+	end
+	for _, ch in raceFolder:GetChildren() do
+		if ch.Name == "Checkpoints" and ch:IsA("IntValue") then
+			return math.floor(ch.Value)
+		end
+		if ch.Name == "Checkpoints" and ch:IsA("NumberValue") then
+			return math.floor(ch.Value)
+		end
+	end
+	local states = raceFolder:FindFirstChild("States")
+	if states then
+		local v = states:FindFirstChild("Checkpoints")
+		if v and v:IsA("IntValue") then
+			return math.floor(v.Value)
+		end
+		if v and v:IsA("NumberValue") then
+			return math.floor(v.Value)
+		end
+	end
+	return nil
+end
+
+local function findFinishCheckpointInstance(holder)
+	if not holder then
+		return nil
+	end
+	local fin = holder:FindFirstChild("Finish")
+	if fin then
+		return fin
+	end
+	for _, ch in holder:GetDescendants() do
+		if ch.Name == "Finish" then
+			return ch
+		end
+	end
+	return nil
+end
+
+local function maxNumericCheckpointIndex(holder)
+	if not holder then
+		return 0
+	end
+	local m = 0
+	for _, ch in holder:GetChildren() do
+		local n = checkpointIndexFromInstanceName(ch.Name)
+		if n and n > m then
+			m = n
+		end
+	end
+	for _, ch in holder:GetDescendants() do
+		local n = checkpointIndexFromInstanceName(ch.Name)
+		if n and n > m then
+			m = n
+		end
+	end
+	return m
+end
+
 local function findCheckpointInstanceForNext(race, entry)
 	if not race or not entry then
 		return nil
@@ -568,12 +643,19 @@ local function findCheckpointInstanceForNext(race, entry)
 	if not folder then
 		return nil
 	end
-	local holder = folder:FindFirstChild("Checkpoints")
+	local holder = getRaceCheckpointPartsFolder(folder)
 	if not holder then
 		return nil
 	end
 	local cur = tonumber(entry:GetAttribute("Checkpoint")) or 0
 	local nextNum = cur + 1
+	local total = getRaceCheckpointTotalCount(folder)
+	if total and nextNum == total then
+		local fin = findFinishCheckpointInstance(holder)
+		if fin then
+			return fin
+		end
+	end
 	local function matches(ch)
 		return checkpointIndexFromInstanceName(ch.Name) == nextNum
 	end
@@ -585,6 +667,13 @@ local function findCheckpointInstanceForNext(race, entry)
 	for _, ch in holder:GetDescendants() do
 		if matches(ch) then
 			return ch
+		end
+	end
+	local finInst = findFinishCheckpointInstance(holder)
+	if finInst then
+		local maxNum = maxNumericCheckpointIndex(holder)
+		if maxNum > 0 and nextNum == maxNum + 1 then
+			return finInst
 		end
 	end
 	return nil
@@ -633,11 +722,10 @@ local function getCheckpointWorldPosition(race, entry)
 	return cf and cf.Position or nil
 end
 
-local function snapLocalVehicleToNextCheckpoint(race, entry)
+local function snapLocalVehicleToTargetCFrame(targetCf)
 	if Config.UseClientCheckpointSnap == false then
 		return
 	end
-	local targetCf = getCheckpointTargetCFrame(race, entry)
 	if not targetCf then
 		return
 	end
@@ -670,6 +758,10 @@ local function snapLocalVehicleToNextCheckpoint(race, entry)
 			end
 		end
 	end
+end
+
+local function snapLocalVehicleToNextCheckpoint(race, entry)
+	snapLocalVehicleToTargetCFrame(getCheckpointTargetCFrame(race, entry))
 end
 
 local function sendKey(k, isDown)
@@ -714,11 +806,18 @@ local function tryTeleportCheckpointManual()
 	if not race or not entry then
 		return
 	end
+	if entry:GetAttribute("Finished") or entry:GetAttribute("DNF") then
+		return
+	end
 	if not raceStateIsRacing(race) then
 		return
 	end
 	local car, seat = getLocalPlayerVehicleSeat()
 	if not car or not seat then
+		return
+	end
+	local targetCf = getCheckpointTargetCFrame(race, entry)
+	if not targetCf then
 		return
 	end
 	local now = os.clock()
@@ -729,26 +828,19 @@ local function tryTeleportCheckpointManual()
 	lastChainTeleportClock = now
 	Network.FireServer("TeleportCheckpoint")
 	task.defer(function()
-		local r = ClientRace.ClientRace
-		if not r then
-			return
-		end
-		local e = r.Racers:FindFirstChild(localPlayer.Name)
-		if e then
-			snapLocalVehicleToNextCheckpoint(r, e)
-		end
+		chainHoldTargetCf = targetCf
+		snapLocalVehicleToTargetCFrame(targetCf)
 	end)
 end
 
-local function checkpointChainGapSeconds()
-	local cd = type(Config.TeleportCooldownSeconds) == "number" and Config.TeleportCooldownSeconds or 0.5
+local function checkpointChainIntervalSeconds()
 	local rate = 2.5
 	if type(Config.TeleportEverySeconds) == "number" and Config.TeleportEverySeconds > 0 then
 		rate = Config.TeleportEverySeconds
 	elseif type(Config.TeleportChainInterval) == "number" and Config.TeleportChainInterval > 0 then
 		rate = Config.TeleportChainInterval
 	end
-	return math.max(0.05, cd, rate)
+	return math.max(0.05, rate)
 end
 
 local function tryTeleportCheckpointChain()
@@ -761,16 +853,24 @@ local function tryTeleportCheckpointChain()
 	if anchor ~= lastChainRaceAnchor then
 		lastChainRaceAnchor = anchor
 		lastChainTeleportClock = -1e9
+		chainHoldTargetCf = nil
 	end
 	if not raceStateIsRacing(race) then
+		return
+	end
+	if entry:GetAttribute("Finished") or entry:GetAttribute("DNF") then
 		return
 	end
 	local car, seat = getLocalPlayerVehicleSeat()
 	if not car or not seat then
 		return
 	end
+	local targetCf = getCheckpointTargetCFrame(race, entry)
+	if not targetCf then
+		return
+	end
 	local now = os.clock()
-	local gap = checkpointChainGapSeconds()
+	local gap = checkpointChainIntervalSeconds()
 	if (now - lastChainTeleportClock) < gap then
 		return
 	end
@@ -778,14 +878,8 @@ local function tryTeleportCheckpointChain()
 	lastTeleportClock = now
 	Network.FireServer("TeleportCheckpoint")
 	task.defer(function()
-		local r = ClientRace.ClientRace
-		if not r then
-			return
-		end
-		local e = r.Racers:FindFirstChild(localPlayer.Name)
-		if e then
-			snapLocalVehicleToNextCheckpoint(r, e)
-		end
+		chainHoldTargetCf = targetCf
+		snapLocalVehicleToTargetCFrame(targetCf)
 	end)
 end
 
@@ -1022,23 +1116,26 @@ local function holdCheckpointSnapIfChaining()
 		return
 	end
 	if not (automationState.teleportChain or automationState.autoFarm) then
+		chainHoldTargetCf = nil
 		return
 	end
 	local race, entry = racerEntryForLocalPlayer()
 	if not race or not entry or not raceStateIsRacing(race) then
+		chainHoldTargetCf = nil
 		return
 	end
-	if not getCheckpointTargetCFrame(race, entry) then
+	local holdCf = chainHoldTargetCf or getCheckpointTargetCFrame(race, entry)
+	if not holdCf then
 		return
 	end
-	local gap = checkpointChainGapSeconds()
+	local gap = checkpointChainIntervalSeconds()
 	if os.clock() - lastChainTeleportClock < gap then
 		local now = os.clock()
 		if now - lastHoldResnapClock < 0.12 then
 			return
 		end
 		lastHoldResnapClock = now
-		snapLocalVehicleToNextCheckpoint(race, entry)
+		snapLocalVehicleToTargetCFrame(holdCf)
 	end
 end
 
@@ -1074,6 +1171,10 @@ local function kpopPerformUnload()
 		scriptRenderConn:Disconnect()
 		scriptRenderConn = nil
 	end
+	if scriptUiConn then
+		scriptUiConn:Disconnect()
+		scriptUiConn = nil
+	end
 	if scriptCharacterAddedConn then
 		scriptCharacterAddedConn:Disconnect()
 		scriptCharacterAddedConn = nil
@@ -1089,6 +1190,7 @@ local function kpopPerformUnload()
 	releaseAllVirtualKeys()
 	lastChainRaceAnchor = nil
 	lastHoldResnapClock = 0
+	chainHoldTargetCf = nil
 	local win = mainWindow
 	mainWindow = nil
 	table.clear(labels)
@@ -1343,7 +1445,7 @@ local function buildLibraryUi()
 
 	local CpSec = Farm:Section({
 		Name = "Checkpoint route",
-		Description = "Only while Racing; lower seconds = faster teleports (capped by cooldown)",
+		Description = "Only while Racing; wait this many seconds on each snap before the next teleport (manual hotkey still uses cooldown)",
 		Icon = "103180437044643",
 		Side = 1,
 	})
@@ -1369,21 +1471,12 @@ local function buildLibraryUi()
 	CpSec:Slider({
 		Name = "Seconds between checkpoint teleports",
 		Flag = "KpopTpRate",
-		Min = math.max(
-			Config.TeleportCooldownSeconds or 0,
-			type(Config.TeleportEverySecondsMin) == "number" and Config.TeleportEverySecondsMin or 0.35
-		),
-		Max = math.max(
-			type(Config.TeleportEverySecondsMax) == "number" and Config.TeleportEverySecondsMax or 45,
-			Config.TeleportCooldownSeconds or 0
-		),
+		Min = type(Config.TeleportEverySecondsMin) == "number" and Config.TeleportEverySecondsMin or 0.35,
+		Max = type(Config.TeleportEverySecondsMax) == "number" and Config.TeleportEverySecondsMax or 120,
 		Default = math.clamp(
 			type(Config.TeleportEverySeconds) == "number" and Config.TeleportEverySeconds or 2.5,
-			math.max(
-				Config.TeleportCooldownSeconds or 0,
-				type(Config.TeleportEverySecondsMin) == "number" and Config.TeleportEverySecondsMin or 0.35
-			),
-			type(Config.TeleportEverySecondsMax) == "number" and Config.TeleportEverySecondsMax or 45
+			type(Config.TeleportEverySecondsMin) == "number" and Config.TeleportEverySecondsMin or 0.35,
+			type(Config.TeleportEverySecondsMax) == "number" and Config.TeleportEverySecondsMax or 120
 		),
 		Decimals = 2,
 		Suffix = "s",
@@ -1510,6 +1603,72 @@ local function buildLibraryUi()
 	return Window
 end
 
+local function stepLiveLabels()
+	if not kpopScriptActive then
+		return
+	end
+	if labels.phase then
+		labels.phase:SetText("phase: " .. getRacePhaseText())
+	end
+	if labels.mult then
+		labels.mult:SetText(
+			string.format(
+				"power x%.2f (%s) | steer x%.2f (%s)",
+				speedMultiplier,
+				Config.ApplySpeedMultiplierToChassisTune and "on" or "off",
+				steeringSensitivity,
+				Config.ApplySteeringTune and "on" or "off"
+			)
+		)
+	end
+	local char = localPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local seat = hum and hum.SeatPart
+	local car = seat and seat:FindFirstAncestorWhichIsA("Model")
+	local v = seat and seat.Velocity.Magnitude or 0
+	local vScaled = v * speedMultiplier
+	local mph = mphApproxFromStudsPerSec(vScaled)
+	if labels.speed then
+		labels.speed:SetText(
+			string.format("speed: %.0f studs/s | ~%.0f mph (x%.2f)", vScaled, mph, speedMultiplier)
+		)
+	end
+	local snap = readTuneSnapshot(car)
+	if labels.tune then
+		if snap then
+			labels.tune:SetText(
+				string.format(
+					"tune: hp %s steerSpeed %s steerRatio %s",
+					tostring(snap.Horsepower),
+					tostring(snap.SteerSpeed),
+					tostring(snap.SteerRatio)
+				)
+			)
+		else
+			labels.tune:SetText("tune: —")
+		end
+	end
+	local lobbyRace = Races.GetRaceFromPlayer(localPlayer)
+	if labels.race then
+		labels.race:SetText("lobby race: " .. raceLobbyLabel(lobbyRace))
+	end
+	if labels.racesCount then
+		labels.racesCount:SetText("workspace races: " .. tostring(countWorkspaceRaceFolders()))
+	end
+	local activeRace, entry = racerEntryForLocalPlayer()
+	if labels.state and labels.checkpoint then
+		if activeRace and entry then
+			local st = activeRace.Folder.State.Value
+			local cp = entry:GetAttribute("Checkpoint")
+			labels.state:SetText("active: " .. raceLobbyLabel(activeRace) .. " | state " .. tostring(st))
+			labels.checkpoint:SetText("checkpoint attr: " .. tostring(cp))
+		else
+			labels.state:SetText("active: —")
+			labels.checkpoint:SetText("checkpoint attr: —")
+		end
+	end
+end
+
 function KpopDemon.Init()
 end
 
@@ -1628,6 +1787,21 @@ function KpopDemon.Start()
 		end
 	end)
 
+	scriptUiConn = RunService.Heartbeat:Connect(function()
+		if not kpopScriptActive then
+			return
+		end
+		pcall(function()
+			if task.synchronize then
+				task.synchronize()
+			end
+			stepLiveLabels()
+		end)
+		if task.desynchronize then
+			task.desynchronize()
+		end
+	end)
+
 	scriptRenderConn = RunService.RenderStepped:Connect(function(dt)
 		if not kpopScriptActive then
 			return
@@ -1648,71 +1822,6 @@ function KpopDemon.Start()
 			releaseAllVirtualKeys()
 			runCheckpointGuidedFlyStep()
 		end
-		if labels.phase then
-			labels.phase:SetText("phase: " .. getRacePhaseText())
-		end
-		if labels.mult then
-			labels.mult:SetText(
-				string.format(
-					"power x%.2f (%s) | steer x%.2f (%s)",
-					speedMultiplier,
-					Config.ApplySpeedMultiplierToChassisTune and "on" or "off",
-					steeringSensitivity,
-					Config.ApplySteeringTune and "on" or "off"
-				)
-			)
-		end
-
-		local char = localPlayer.Character
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		local seat = hum and hum.SeatPart
-		local car = seat and seat:FindFirstAncestorWhichIsA("Model")
-		local v = seat and seat.Velocity.Magnitude or 0
-		local vScaled = v * speedMultiplier
-		local mph = mphApproxFromStudsPerSec(vScaled)
-		if labels.speed then
-			labels.speed:SetText(
-				string.format("speed: %.0f studs/s | ~%.0f mph (x%.2f)", vScaled, mph, speedMultiplier)
-			)
-		end
-
-		local snap = readTuneSnapshot(car)
-		if labels.tune then
-			if snap then
-				labels.tune:SetText(
-					string.format(
-						"tune: hp %s steerSpeed %s steerRatio %s",
-						tostring(snap.Horsepower),
-						tostring(snap.SteerSpeed),
-						tostring(snap.SteerRatio)
-					)
-				)
-			else
-				labels.tune:SetText("tune: —")
-			end
-		end
-
-		local lobbyRace = Races.GetRaceFromPlayer(localPlayer)
-		if labels.race then
-			labels.race:SetText("lobby race: " .. raceLobbyLabel(lobbyRace))
-		end
-		if labels.racesCount then
-			labels.racesCount:SetText("workspace races: " .. tostring(countWorkspaceRaceFolders()))
-		end
-
-		local activeRace, entry = racerEntryForLocalPlayer()
-		if labels.state and labels.checkpoint then
-			if activeRace and entry then
-				local st = activeRace.Folder.State.Value
-				local cp = entry:GetAttribute("Checkpoint")
-				labels.state:SetText("active: " .. raceLobbyLabel(activeRace) .. " | state " .. tostring(st))
-				labels.checkpoint:SetText("checkpoint attr: " .. tostring(cp))
-			else
-				labels.state:SetText("active: —")
-				labels.checkpoint:SetText("checkpoint attr: —")
-			end
-		end
-
 		local wantDrive = automationAllowed()
 			and not flyOn
 			and not guidedOn
