@@ -451,6 +451,65 @@ local function tryAutoSoloQueue()
 	Network.FireServer("StartSoloRace", rid)
 end
 
+local function raceStateIsRacing(race)
+	if not race or not race.Folder then
+		return false
+	end
+	local st = race.Folder:FindFirstChild("State")
+	if not st or not st:IsA("StringValue") then
+		return false
+	end
+	return string.lower(st.Value) == "racing"
+end
+
+local function getLocalPlayerVehicleSeat()
+	local char = localPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local seat = hum and hum.SeatPart
+	if seat and seat:IsA("VehicleSeat") then
+		local car = seat:FindFirstAncestorWhichIsA("Model")
+		if car then
+			return car, seat
+		end
+	end
+	return nil, nil
+end
+
+local function checkpointIndexFromInstanceName(name)
+	if type(name) ~= "string" then
+		return nil
+	end
+	local direct = tonumber(name)
+	if direct then
+		return direct
+	end
+	local a = string.match(name, "^Checkpoint[_]?(%d+)$")
+	if a then
+		return tonumber(a)
+	end
+	local b = string.match(name, "^CP(%d+)$")
+	if b then
+		return tonumber(b)
+	end
+	return nil
+end
+
+local function partWorldPosForCheckpoint(inst)
+	if inst:IsA("BasePart") then
+		return inst.Position
+	end
+	if inst:IsA("Model") then
+		return inst:GetPivot().Position
+	end
+	if inst:IsA("Folder") then
+		local p = inst:FindFirstChildWhichIsA("BasePart", true)
+		if p then
+			return p.Position
+		end
+	end
+	return nil
+end
+
 local function getCheckpointWorldPosition(race, entry)
 	if not race or not entry then
 		return nil
@@ -465,31 +524,64 @@ local function getCheckpointWorldPosition(race, entry)
 	end
 	local cur = tonumber(entry:GetAttribute("Checkpoint")) or 0
 	local nextNum = cur + 1
-	local function partWorldPos(inst)
-		if inst:IsA("BasePart") then
-			return inst.Position
+	local function tryChild(ch)
+		local n = checkpointIndexFromInstanceName(ch.Name)
+		if n ~= nextNum then
+			return nil
 		end
-		if inst:IsA("Model") then
-			return inst:GetPivot().Position
-		end
-		if inst:IsA("Folder") then
-			local p = inst:FindFirstChildWhichIsA("BasePart", true)
-			if p then
-				return p.Position
-			end
-		end
-		return nil
+		return partWorldPosForCheckpoint(ch)
 	end
 	for _, ch in holder:GetChildren() do
-		local n = tonumber(ch.Name)
-		if n == nextNum then
-			local p = partWorldPos(ch)
-			if p then
-				return p
-			end
+		local p = tryChild(ch)
+		if p then
+			return p
+		end
+	end
+	for _, ch in holder:GetDescendants() do
+		local p = tryChild(ch)
+		if p then
+			return p
 		end
 	end
 	return nil
+end
+
+local function snapLocalVehicleToNextCheckpoint(race, entry)
+	if Config.UseClientCheckpointSnap == false then
+		return
+	end
+	local targetPos = getCheckpointWorldPosition(race, entry)
+	if not targetPos then
+		return
+	end
+	local car, seat = getLocalPlayerVehicleSeat()
+	if not car or not seat then
+		return
+	end
+	local pivot = car:GetPivot()
+	local seatW = seat.CFrame
+	local yoff = type(Config.CheckpointSnapYOffset) == "number" and Config.CheckpointSnapYOffset or 3
+	local lv = seatW.LookVector
+	local flat = Vector3.new(lv.X, 0, lv.Z)
+	if flat.Magnitude < 1e-3 then
+		flat = Vector3.new(0, 0, -1)
+	else
+		flat = flat.Unit
+	end
+	local aim = targetPos + Vector3.new(0, yoff, 0) + flat * 4
+	local targetSeat = CFrame.lookAt(targetPos + Vector3.new(0, yoff, 0), aim)
+	local newPivot = targetSeat * seatW:Inverse() * pivot
+	pcall(function()
+		car:PivotTo(newPivot)
+	end)
+	if Config.ZeroVelocityAfterCheckpointSnap then
+		for _, d in car:GetDescendants() do
+			if d:IsA("BasePart") then
+				d.AssemblyLinearVelocity = Vector3.zero
+				d.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+	end
 end
 
 local function sendKey(k, isDown)
@@ -530,11 +622,15 @@ local function nudgeSpeedMultiplier(delta)
 end
 
 local function tryTeleportCheckpointManual()
-	local race = ClientRace.ClientRace
-	if not race then
+	local race, entry = racerEntryForLocalPlayer()
+	if not race or not entry then
 		return
 	end
-	if race.Folder.State.Value ~= "Racing" then
+	if not raceStateIsRacing(race) then
+		return
+	end
+	local car, seat = getLocalPlayerVehicleSeat()
+	if not car or not seat then
 		return
 	end
 	local now = os.clock()
@@ -544,14 +640,28 @@ local function tryTeleportCheckpointManual()
 	lastTeleportClock = now
 	lastChainTeleportClock = now
 	Network.FireServer("TeleportCheckpoint")
+	task.defer(function()
+		local r = ClientRace.ClientRace
+		if not r then
+			return
+		end
+		local e = r.Racers:FindFirstChild(localPlayer.Name)
+		if e then
+			snapLocalVehicleToNextCheckpoint(r, e)
+		end
+	end)
 end
 
 local function tryTeleportCheckpointChain()
-	local race = ClientRace.ClientRace
-	if not race then
+	local race, entry = racerEntryForLocalPlayer()
+	if not race or not entry then
 		return
 	end
-	if race.Folder.State.Value ~= "Racing" then
+	if not raceStateIsRacing(race) then
+		return
+	end
+	local car, seat = getLocalPlayerVehicleSeat()
+	if not car or not seat then
 		return
 	end
 	local now = os.clock()
@@ -561,6 +671,16 @@ local function tryTeleportCheckpointChain()
 	lastChainTeleportClock = now
 	lastTeleportClock = now
 	Network.FireServer("TeleportCheckpoint")
+	task.defer(function()
+		local r = ClientRace.ClientRace
+		if not r then
+			return
+		end
+		local e = r.Racers:FindFirstChild(localPlayer.Name)
+		if e then
+			snapLocalVehicleToNextCheckpoint(r, e)
+		end
+	end)
 end
 
 local function driveSeatCFrame(car)
@@ -588,7 +708,7 @@ local function runAutoDriveStep(dt)
 		releaseAllVirtualKeys()
 		return
 	end
-	if race.Folder.State.Value ~= "Racing" then
+	if not raceStateIsRacing(race) then
 		releaseAllVirtualKeys()
 		return
 	end
