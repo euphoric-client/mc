@@ -32,4 +32,7 @@ return {
 	CheckpointSnapYOffset = 3,
 	UseClientCheckpointSnap = true,
 	ZeroVelocityAfterCheckpointSnap = true,
+	CarFlySpeed = 160,
+	CarFlySpeedMin = 20,
+	CarFlySpeedMax = 500,
 }

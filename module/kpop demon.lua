@@ -129,7 +129,12 @@ local automationState = {
 	autoDriveV2 = false,
 	autoQueueSolo = false,
 	selectedRaceId = "Race5",
+	carNoclip = false,
+	autoNoclipWhileRacing = true,
+	carFly = false,
 }
+local noclipBaselineByPart = {}
+local noclipBoundCar = nil
 local steerPulseAccum = 0
 local keysVirtualDown = {
 	[Enum.KeyCode.W] = false,
@@ -778,6 +783,103 @@ local function runAutoDriveStep(dt)
 	end
 end
 
+local function restoreCarNoclipBaselines()
+	for p, was in noclipBaselineByPart do
+		if p and p.Parent then
+			p.CanCollide = was
+		end
+	end
+	table.clear(noclipBaselineByPart)
+	noclipBoundCar = nil
+end
+
+local function carNoclipWantActive()
+	if not automationAllowed() then
+		return false
+	end
+	if automationState.carNoclip then
+		return true
+	end
+	if automationState.autoNoclipWhileRacing then
+		local race = ClientRace.ClientRace
+		return race ~= nil and raceStateIsRacing(race)
+	end
+	return false
+end
+
+local function stepCarNoclip()
+	if not carNoclipWantActive() then
+		restoreCarNoclipBaselines()
+		return
+	end
+	local car = select(1, getLocalPlayerVehicleSeat())
+	if not car then
+		restoreCarNoclipBaselines()
+		return
+	end
+	if noclipBoundCar and noclipBoundCar ~= car then
+		restoreCarNoclipBaselines()
+	end
+	noclipBoundCar = car
+	for _, d in car:GetDescendants() do
+		if d:IsA("BasePart") then
+			if noclipBaselineByPart[d] == nil then
+				noclipBaselineByPart[d] = d.CanCollide
+			end
+			d.CanCollide = false
+		end
+	end
+end
+
+local function runCarFlyStep(dt)
+	local car, seat = getLocalPlayerVehicleSeat()
+	if not car or not seat then
+		return
+	end
+	local cam = Workspace.CurrentCamera
+	if not cam then
+		return
+	end
+	local lv = cam.CFrame.LookVector
+	local flat = Vector3.new(lv.X, 0, lv.Z)
+	if flat.Magnitude > 1e-3 then
+		flat = flat.Unit
+	else
+		flat = Vector3.new(0, 0, -1)
+	end
+	local move = Vector3.zero
+	if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+		move += flat
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+		move -= flat
+	end
+	local right = flat:Cross(Vector3.yAxis)
+	if right.Magnitude > 1e-3 then
+		right = right.Unit
+		if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+			move += right
+		end
+		if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+			move -= right
+		end
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+		move += Vector3.yAxis
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+		move -= Vector3.yAxis
+	end
+	local cap = type(Config.CarFlySpeed) == "number" and Config.CarFlySpeed or 160
+	if move.Magnitude > 1e-4 then
+		seat.AssemblyLinearVelocity = move.Unit * cap
+	else
+		local v = seat.AssemblyLinearVelocity
+		local damp = math.clamp(1 - dt * 4, 0, 1)
+		seat.AssemblyLinearVelocity = Vector3.new(v.X * damp, v.Y * damp * 0.96, v.Z * damp)
+	end
+end
+
 local function buildLibraryUi()
 	Library.Theme["Accent"] = Color3.fromRGB(255, 105, 180)
 	Library.Theme["AccentGradient"] = Color3.fromRGB(255, 140, 200)
@@ -1027,6 +1129,63 @@ local function buildLibraryUi()
 		end,
 	})
 
+	Window:Category("Movement")
+	local MovePage = Window:Page({
+		Name = "Physics",
+		Icon = "138827881557940",
+	})
+	local CollideSec = MovePage:Section({
+		Name = "Car collision",
+		Description = "auto noclip only while phase Racing; restores when you leave the car",
+		Icon = "126497581491926",
+		Side = 1,
+	})
+	CollideSec:Toggle({
+		Name = "Car noclip (when seated)",
+		Flag = "KpopCarNoclip",
+		Default = false,
+		Callback = function(v)
+			automationState.carNoclip = v
+		end,
+	})
+	CollideSec:Toggle({
+		Name = "Auto car noclip while Racing",
+		Flag = "KpopAutoRaceNoclip",
+		Default = true,
+		Callback = function(v)
+			automationState.autoNoclipWhileRacing = v
+		end,
+	})
+	local FlySec = MovePage:Section({
+		Name = "Car fly",
+		Description = "WASD Space Shift camera-relative; disables auto steer while on",
+		Icon = "108839695397679",
+		Side = 1,
+	})
+	FlySec:Toggle({
+		Name = "Car fly",
+		Flag = "KpopCarFly",
+		Default = false,
+		Callback = function(v)
+			automationState.carFly = v
+			if v then
+				releaseAllVirtualKeys()
+			end
+		end,
+	})
+	FlySec:Slider({
+		Name = "Car fly speed",
+		Flag = "KpopCarFlySpeed",
+		Min = Config.CarFlySpeedMin,
+		Max = Config.CarFlySpeedMax,
+		Default = Config.CarFlySpeed,
+		Decimals = 0,
+		Suffix = "stu/s",
+		Callback = function(v)
+			Config.CarFlySpeed = v
+		end,
+	})
+
 	Library:Notification({
 		Title = "kpop demon",
 		Description = "Home or PageUp toggles menu.",
@@ -1086,6 +1245,7 @@ function KpopDemon.Start()
 
 	local function onCharacterAdded(character)
 		clearCharacterConnections()
+		restoreCarNoclipBaselines()
 		clearVehicleTuneBinding()
 		local hum = character:WaitForChild("Humanoid", 30)
 		if not hum then
@@ -1101,6 +1261,7 @@ function KpopDemon.Start()
 					end
 				else
 					clearVehicleTuneBinding()
+					restoreCarNoclipBaselines()
 				end
 			end)
 		end
@@ -1129,6 +1290,12 @@ function KpopDemon.Start()
 	end)
 
 	RunService.RenderStepped:Connect(function(dt)
+		stepCarNoclip()
+		local flyOn = automationAllowed() and automationState.carFly
+		if flyOn then
+			releaseAllVirtualKeys()
+			runCarFlyStep(dt)
+		end
 		if labels.phase then
 			labels.phase:SetText("phase: " .. getRacePhaseText())
 		end
@@ -1195,6 +1362,7 @@ function KpopDemon.Start()
 		end
 
 		local wantDrive = automationAllowed()
+			and not flyOn
 			and (
 				automationState.autoFarm
 				or automationState.autoDriveV1
@@ -1202,7 +1370,7 @@ function KpopDemon.Start()
 			)
 		if wantDrive then
 			runAutoDriveStep(dt)
-		else
+		elseif not flyOn then
 			releaseAllVirtualKeys()
 		end
 	end)
