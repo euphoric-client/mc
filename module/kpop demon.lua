@@ -1406,7 +1406,7 @@ local function buildLibraryUi()
 		Side = 1,
 	})
 	CpSec:Toggle({
-		Name = "Teleport Chain",
+		Name = "Auto Teleport to Checkpoints",
 		Flag = "KpopTpChain",
 		Default = false,
 		Callback = function(v)
