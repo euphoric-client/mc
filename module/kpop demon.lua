@@ -1519,7 +1519,7 @@ local function buildLibraryUi()
 		Side = 1,
 	})
 	WorldSec:Toggle({
-		Name = "Disable Traffic (Removes NPC Cars)",
+		Name = "Disable Traffic",
 		Flag = "KpopDisableTraffic",
 		Default = false,
 		Callback = function(v)
@@ -1527,7 +1527,7 @@ local function buildLibraryUi()
 		end,
 	})
 	WorldSec:Toggle({
-		Name = "Disable Car Collisions (Noclip)",
+		Name = "Disable Car Collisions",
 		Flag = "KpopDisableCollisions",
 		Default = false,
 		Callback = function(v)
