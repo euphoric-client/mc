@@ -658,6 +658,17 @@ local function reapplyVehicleTune()
 			tune[key] = base * steeringSensitivity
 		end
 	end
+
+	-- Attempt to force A-Chassis to reload the tune immediately
+	local car = lastTuneScript:FindFirstAncestorWhichIsA("Model")
+	if car then
+		local updateTune = car:FindFirstChild("UpdateTune", true)
+		if updateTune and updateTune:IsA("RemoteEvent") and typeof(getconnections) == "function" then
+			for _, connection in ipairs(getconnections(updateTune.OnClientEvent)) do
+				pcall(function() connection:Function(tune) end)
+			end
+		end
+	end
 end
 
 local function bindVehicleTuneForSeat(carModel)
@@ -1883,7 +1894,7 @@ local function buildLibraryUi()
 		Min = 0,
 		Max = 300,
 		Default = 120,
-		Decimals = 0,
+		Decimals = 1,
 		Suffix = "s",
 		Callback = function(v)
 			automationState.finishWaitTime = v
@@ -1901,11 +1912,19 @@ local function buildLibraryUi()
 		Side = 1,
 	})
 	TuneSec:Toggle({
-		Name = "Apply Performance Mods",
-		Flag = "KpopApplyMods",
+		Name = "Apply Power Mods",
+		Flag = "KpopApplyPower",
 		Default = false,
 		Callback = function(v)
 			Config.ApplySpeedMultiplierToChassisTune = v
+			reapplyVehicleTune()
+		end,
+	})
+	TuneSec:Toggle({
+		Name = "Apply Steering Mods",
+		Flag = "KpopApplySteer",
+		Default = false,
+		Callback = function(v)
 			Config.ApplySteeringTune = v
 			reapplyVehicleTune()
 		end,
@@ -1916,7 +1935,7 @@ local function buildLibraryUi()
 		Min = 0.1,
 		Max = 50,
 		Default = speedMultiplier,
-		Decimals = 2,
+		Decimals = 0.1,
 		Suffix = "x",
 		Callback = function(v)
 			setSpeedMultiplier(v)
@@ -1928,7 +1947,7 @@ local function buildLibraryUi()
 		Min = 0.1,
 		Max = 5,
 		Default = steeringSensitivity,
-		Decimals = 2,
+		Decimals = 0.05,
 		Suffix = "x",
 		Callback = function(v)
 			setSteeringSensitivity(v)
@@ -2036,37 +2055,37 @@ local function buildLibraryUi()
 	WorldModSec:Slider({
 		Name = "Atmosphere Density",
 		Flag = "KpopAtmoDensity",
-		Min = 0, Max = 1, Default = 0.4, Decimals = 2,
+		Min = 0, Max = 1, Default = 0.4, Decimals = 0.05,
 		Callback = function(v) automationState.atmosphere.density = v end,
 	})
 	WorldModSec:Slider({
 		Name = "Atmosphere Glare",
 		Flag = "KpopAtmoGlare",
-		Min = 0, Max = 10, Default = 10, Decimals = 1,
+		Min = 0, Max = 10, Default = 10, Decimals = 0.5,
 		Callback = function(v) automationState.atmosphere.glare = v end,
 	})
 	WorldModSec:Slider({
 		Name = "Atmosphere Haze",
 		Flag = "KpopAtmoHaze",
-		Min = 0, Max = 10, Default = 10, Decimals = 1,
+		Min = 0, Max = 10, Default = 10, Decimals = 0.5,
 		Callback = function(v) automationState.atmosphere.haze = v end,
 	})
 	WorldModSec:Slider({
 		Name = "Brightness",
 		Flag = "KpopBrightness",
-		Min = 0, Max = 10, Default = 3, Decimals = 1,
+		Min = 0, Max = 10, Default = 3, Decimals = 0.5,
 		Callback = function(v) automationState.brightness = v end,
 	})
 	WorldModSec:Slider({
 		Name = "Saturation",
 		Flag = "KpopSaturation",
-		Min = -5, Max = 5, Default = 0, Decimals = 1,
+		Min = -5, Max = 5, Default = 0, Decimals = 0.5,
 		Callback = function(v) automationState.saturation = v end,
 	})
 	WorldModSec:Slider({
 		Name = "Exposure",
 		Flag = "KpopExposure",
-		Min = -10, Max = 10, Default = -0.5, Decimals = 2,
+		Min = -10, Max = 10, Default = -0.5, Decimals = 0.1,
 		Callback = function(v) automationState.exposure = v end,
 	})
 	WorldModSec:Label("Ambient Color"):Colorpicker({
@@ -2077,7 +2096,7 @@ local function buildLibraryUi()
 	WorldModSec:Slider({
 		Name = "Time of Day",
 		Flag = "KpopTimeOfDay",
-		Min = 0, Max = 24, Default = 12, Decimals = 1,
+		Min = 0, Max = 24, Default = 12, Decimals = 0.1,
 		Callback = function(v) automationState.timeOfDay = v end,
 	})
 
