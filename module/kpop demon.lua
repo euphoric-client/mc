@@ -1670,9 +1670,27 @@ local function kpopPerformUnload()
 	table.clear(labels)
 	kpopDestroyMainWindowDeferred(win)
 	pcall(function()
-		for _, v in ipairs(game:GetService("Lighting"):GetChildren()) do
-			if v:IsA("BlurEffect") then
-				v:Destroy()
+		if centerPanelGui then
+			centerPanelGui:Destroy()
+			centerPanelGui = nil
+		end
+		for _, tag in pairs(playerEspTags) do
+			tag:Destroy()
+		end
+		table.clear(playerEspTags)
+		
+		local Lighting = game:GetService("Lighting")
+		local atmo = Lighting:FindFirstChild("KpopAtmosphere")
+		if atmo then atmo:Destroy() end
+		
+		local cc = Lighting:FindFirstChild("KpopColorCorrection")
+		if cc then cc:Destroy() end
+		
+		for _, v in ipairs(Lighting:GetChildren()) do
+			if v:IsA("BlurEffect") or v:IsA("Sky") then
+				if v.Name:find("Kpop") or v:IsA("Sky") then
+					v:Destroy()
+				end
 			end
 		end
 	end)
@@ -2012,11 +2030,29 @@ local function buildLibraryUi()
 		Default = Color3.fromRGB(238, 147, 237),
 		Callback = function(v) automationState.atmosphere.color = v end,
 	})
+	WorldModSec:Colorpicker({
+		Name = "Atmosphere Decay",
+		Flag = "KpopAtmoDecay",
+		Default = Color3.fromRGB(255, 255, 255),
+		Callback = function(v) automationState.atmosphere.decay = v end,
+	})
 	WorldModSec:Slider({
 		Name = "Atmosphere Density",
 		Flag = "KpopAtmoDensity",
 		Min = 0, Max = 1, Default = 0.4, Decimals = 2,
 		Callback = function(v) automationState.atmosphere.density = v end,
+	})
+	WorldModSec:Slider({
+		Name = "Atmosphere Glare",
+		Flag = "KpopAtmoGlare",
+		Min = 0, Max = 10, Default = 10, Decimals = 1,
+		Callback = function(v) automationState.atmosphere.glare = v end,
+	})
+	WorldModSec:Slider({
+		Name = "Atmosphere Haze",
+		Flag = "KpopAtmoHaze",
+		Min = 0, Max = 10, Default = 10, Decimals = 1,
+		Callback = function(v) automationState.atmosphere.haze = v end,
 	})
 	WorldModSec:Slider({
 		Name = "Brightness",
@@ -2029,6 +2065,18 @@ local function buildLibraryUi()
 		Flag = "KpopSaturation",
 		Min = -5, Max = 5, Default = 0, Decimals = 1,
 		Callback = function(v) automationState.saturation = v end,
+	})
+	WorldModSec:Slider({
+		Name = "Exposure",
+		Flag = "KpopExposure",
+		Min = -10, Max = 10, Default = -0.5, Decimals = 2,
+		Callback = function(v) automationState.exposure = v end,
+	})
+	WorldModSec:Colorpicker({
+		Name = "Ambient Color",
+		Flag = "KpopAmbient",
+		Default = Color3.fromRGB(0, 0, 0),
+		Callback = function(v) automationState.ambient = v end,
 	})
 	WorldModSec:Slider({
 		Name = "Time of Day",
@@ -2047,13 +2095,37 @@ local function buildLibraryUi()
 		Default = false,
 		Callback = function(v) automationState.skybox.enabled = v end,
 	})
+	local skyboxInputs = {}
+	for _, side in ipairs({"Bk", "Dn", "Ft", "Lf", "Rt", "Up"}) do
+		local input = SkySec:Input({
+			Name = "Skybox " .. side,
+			Flag = "KpopSky" .. side,
+			Placeholder = "Asset ID",
+			Callback = function(v) automationState.skybox.custom[side:lower()] = v end,
+		})
+		table.insert(skyboxInputs, input)
+	end
+
+	local function updateSkyboxInputVisibility(selected)
+		local visible = (selected == "Custom")
+		for _, input in ipairs(skyboxInputs) do
+			-- The library usually has a :Visible() or similar method on elements
+			-- If not, we might need to find another way, but typically they do.
+			pcall(function() input:Visible(visible) end)
+		end
+	end
+	
 	SkySec:Dropdown({
 		Name = "Select Skybox",
 		Flag = "KpopSkySelect",
 		Default = "Jungle",
 		Items = {"Jungle", "Blossom", "Red night", "Purple default", "Foggy", "Custom"},
-		Callback = function(v) automationState.skybox.selected = v end,
+		Callback = function(v) 
+			automationState.skybox.selected = v 
+			updateSkyboxInputVisibility(v)
+		end,
 	})
+	updateSkyboxInputVisibility("Jungle")
 	
 	local FogSec = VisPage:Section({
 		Name = "Fog",
