@@ -205,45 +205,79 @@ local function updateCenterPanel()
 		centerPanelGui.Name = "KpopCenterPanel"
 		centerPanelGui.Parent = game:GetService("CoreGui")
 		
-		local frame = Instance.new("Frame")
-		frame.Name = "MainFrame"
-		frame.Size = UDim2.new(0, 200, 0, 100)
-		frame.Position = UDim2.new(0.5, -100, 0.1, 0)
-		frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-		frame.BackgroundTransparency = 0.2
-		frame.BorderSizePixel = 0
-		frame.Parent = centerPanelGui
+		-- Outer Border (Black)
+		local outer = Instance.new("Frame")
+		outer.Name = "Outer"
+		outer.Size = UDim2.new(0, 240, 0, 70)
+		outer.Position = UDim2.new(0.5, -120, 0.05, 0)
+		outer.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+		outer.BorderSizePixel = 0
+		outer.Parent = centerPanelGui
 		
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 8)
-		corner.Parent = frame
+		-- Mid Border (Grey)
+		local mid = Instance.new("Frame")
+		mid.Name = "Mid"
+		mid.Size = UDim2.new(1, -2, 1, -2)
+		mid.Position = UDim2.new(0, 1, 0, 1)
+		mid.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+		mid.BorderSizePixel = 0
+		mid.Parent = outer
+		
+		-- Inner Border (Lighter Grey)
+		local inner = Instance.new("Frame")
+		inner.Name = "Inner"
+		inner.Size = UDim2.new(1, -2, 1, -2)
+		inner.Position = UDim2.new(0, 1, 0, 1)
+		inner.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+		inner.BorderSizePixel = 0
+		inner.Parent = mid
+		
+		-- Main Background
+		local main = Instance.new("Frame")
+		main.Name = "Main"
+		main.Size = UDim2.new(1, -2, 1, -2)
+		main.Position = UDim2.new(0, 1, 0, 1)
+		main.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+		main.BorderSizePixel = 0
+		main.Parent = inner
+		
+		-- Accent Line (Pink/Kpop)
+		local accent = Instance.new("Frame")
+		accent.Name = "Accent"
+		accent.Size = UDim2.new(1, 0, 0, 1)
+		accent.BackgroundColor3 = Color3.fromRGB(255, 105, 180)
+		accent.BorderSizePixel = 0
+		accent.Parent = main
 		
 		local title = Instance.new("TextLabel")
 		title.Name = "Title"
-		title.Size = UDim2.new(1, 0, 0, 30)
+		title.Size = UDim2.new(1, -10, 0, 20)
+		title.Position = UDim2.new(0, 5, 0, 5)
 		title.BackgroundTransparency = 1
-		title.Text = "kpop demon | v1.0"
+		title.Text = "kpop demon"
 		title.TextColor3 = Color3.fromRGB(255, 105, 180)
-		title.TextSize = 16
-		title.Font = Enum.Font.GothamBold
-		title.Parent = frame
+		title.TextSize = 13
+		title.Font = Enum.Font.Code
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.Parent = main
 		
 		local info = Instance.new("TextLabel")
 		info.Name = "Info"
-		info.Size = UDim2.new(1, -20, 1, -40)
-		info.Position = UDim2.new(0, 10, 0, 35)
+		info.Size = UDim2.new(1, -10, 1, -25)
+		info.Position = UDim2.new(0, 5, 0, 25)
 		info.BackgroundTransparency = 1
-		info.Text = "FPS: 60\nPing: 20ms\nMoney: $0"
-		info.TextColor3 = Color3.new(1, 1, 1)
-		info.TextSize = 14
-		info.Font = Enum.Font.Gotham
+		info.Text = "FPS: 60 | PING: 20ms | MONEY: $0"
+		info.TextColor3 = Color3.fromRGB(226, 226, 226)
+		info.TextSize = 13
+		info.Font = Enum.Font.Code
+		info.TextXAlignment = Enum.TextXAlignment.Left
 		info.TextYAlignment = Enum.TextYAlignment.Top
-		info.Parent = frame
+		info.Parent = main
 	end
 	
 	local fps = math.floor(1 / game:GetService("RunService").RenderStepped:Wait())
 	local ping = math.floor(localPlayer:GetNetworkPing() * 1000)
-	centerPanelGui.MainFrame.Info.Text = string.format("FPS: %d\nPing: %dms\nMoney: $%d", fps, ping, automationState.sessionTotalMoney)
+	centerPanelGui.Outer.Mid.Inner.Main.Info.Text = string.format("FPS: %d | PING: %dms | MONEY: $%d", fps, ping, automationState.sessionTotalMoney)
 end
 local playerEspTags = {}
 local function updatePlayerEsp()
