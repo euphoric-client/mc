@@ -141,10 +141,7 @@ local scriptIdledConn = nil
 local raceFolderAddedConn = nil
 local raceFolderRemovedConn = nil
 local automationState = {
-	autoFarm = false,
 	teleportChain = false,
-	autoDriveV1 = false,
-	autoDriveV2 = false,
 	autoQueueSolo = false,
 	autoQueueWithPlayers = false,
 	selectedRaceId = "Race5",
@@ -1346,8 +1343,8 @@ local function buildLibraryUi()
 		Icon = "108839695397679",
 	})
 	local SoloSec = Farm:Section({
-		Name = "Solo race",
-		Description = "Race id for StartSoloRace",
+		Name = "Solo Race",
+		Description = "Select and queue for solo races",
 		Icon = "126497581491926",
 		Side = 1,
 	})
@@ -1386,31 +1383,6 @@ local function buildLibraryUi()
 		end,
 	})
 
-	local PresetSec = Farm:Section({
-		Name = "Auto Farm",
-		Description = "Enable solo queue and teleport chain",
-		Icon = "138827881557940",
-		Side = 1,
-	})
-	PresetSec:Toggle({
-		Name = "Auto Farm Preset",
-		Flag = "KpopAutoFarm",
-		Default = false,
-		Callback = function(v)
-			automationState.autoFarm = v
-			if v then
-				automationState.teleportChain = true
-				automationState.autoQueueSolo = true
-				syncLibFlag("KpopTpChain", true)
-				syncLibFlag("KpopAutoSolo", true)
-			else
-				automationState.teleportChain = false
-				automationState.autoQueueSolo = false
-				syncLibFlag("KpopTpChain", false)
-				syncLibFlag("KpopAutoSolo", false)
-			end
-		end,
-	})
 
 	local AntiAfkSec = Farm:Section({
 		Name = "Anti AFK",
@@ -1439,12 +1411,6 @@ local function buildLibraryUi()
 		Default = false,
 		Callback = function(v)
 			automationState.teleportChain = v
-			if not v and automationState.autoFarm then
-				automationState.autoFarm = false
-				automationState.autoQueueSolo = false
-				syncLibFlag("KpopAutoFarm", false)
-				syncLibFlag("KpopAutoSolo", false)
-			end
 		end,
 	})
 	CpSec:Toggle({
@@ -1475,7 +1441,7 @@ local function buildLibraryUi()
 	
 	local TuneSec = ModsPage:Section({
 		Name = "Car Tuning",
-		Description = "Modify car performance (applies when seated)",
+		Description = "Modify car performance",
 		Side = 1,
 	})
 	TuneSec:Toggle({
