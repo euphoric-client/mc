@@ -163,7 +163,88 @@ local automationState = {
 	motionBlur = false,
 	brightness = 3,
 	timeOfDay = 12,
+	centerPanel = false,
+	atmosphere = {
+		enabled = false,
+		color = Color3.fromRGB(238, 147, 237),
+		decay = Color3.fromRGB(255, 255, 255),
+		density = 0.4,
+		glare = 10,
+		haze = 10,
+	},
+	saturation = 0,
+	exposure = -0.5,
+	ambient = Color3.fromRGB(0, 0, 0),
+	skybox = {
+		enabled = false,
+		selected = "Jungle",
+		custom = {
+			bk = "", dn = "", ft = "", lf = "", rt = "", up = ""
+		}
+	},
+	fog = {
+		enabled = false,
+		color = Color3.fromRGB(128, 128, 128),
+		start = 0,
+		finish = 800,
+	}
 }
+
+local centerPanelGui = nil
+local function updateCenterPanel()
+	if not automationState.centerPanel then
+		if centerPanelGui then
+			centerPanelGui:Destroy()
+			centerPanelGui = nil
+		end
+		return
+	end
+
+	if not centerPanelGui then
+		centerPanelGui = Instance.new("ScreenGui")
+		centerPanelGui.Name = "KpopCenterPanel"
+		centerPanelGui.Parent = game:GetService("CoreGui")
+		
+		local frame = Instance.new("Frame")
+		frame.Name = "MainFrame"
+		frame.Size = UDim2.new(0, 200, 0, 100)
+		frame.Position = UDim2.new(0.5, -100, 0.1, 0)
+		frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+		frame.BackgroundTransparency = 0.2
+		frame.BorderSizePixel = 0
+		frame.Parent = centerPanelGui
+		
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 8)
+		corner.Parent = frame
+		
+		local title = Instance.new("TextLabel")
+		title.Name = "Title"
+		title.Size = UDim2.new(1, 0, 0, 30)
+		title.BackgroundTransparency = 1
+		title.Text = "kpop demon | v1.0"
+		title.TextColor3 = Color3.fromRGB(255, 105, 180)
+		title.TextSize = 16
+		title.Font = Enum.Font.GothamBold
+		title.Parent = frame
+		
+		local info = Instance.new("TextLabel")
+		info.Name = "Info"
+		info.Size = UDim2.new(1, -20, 1, -40)
+		info.Position = UDim2.new(0, 10, 0, 35)
+		info.BackgroundTransparency = 1
+		info.Text = "FPS: 60\nPing: 20ms\nMoney: $0"
+		info.TextColor3 = Color3.new(1, 1, 1)
+		info.TextSize = 14
+		info.Font = Enum.Font.Gotham
+		info.TextYAlignment = Enum.TextYAlignment.Top
+		info.Parent = frame
+	end
+	
+	local fps = math.floor(1 / game:GetService("RunService").RenderStepped:Wait())
+	local ping = math.floor(localPlayer:GetNetworkPing() * 1000)
+	centerPanelGui.MainFrame.Info.Text = string.format("FPS: %d\nPing: %dms\nMoney: $%d", fps, ping, automationState.sessionTotalMoney)
+end
 local playerEspTags = {}
 local function updatePlayerEsp()
 	if not automationState.playerEsp then
@@ -181,7 +262,7 @@ local function updatePlayerEsp()
 			if not tag then
 				tag = Instance.new("BillboardGui")
 				tag.Name = "KpopEspTag"
-				tag.Size = UDim2.new(0, 100, 0, 50)
+				tag.Size = UDim2.new(0, 150, 0, 50)
 				tag.StudsOffset = Vector3.new(0, 2, 0)
 				tag.AlwaysOnTop = true
 				
@@ -204,12 +285,100 @@ local function updatePlayerEsp()
 	end
 end
 
+local skyboxes = {
+	["Jungle"] = {
+		bk = "http://www.roblox.com/asset/?id=214399891",
+		dn = "http://www.roblox.com/asset/?id=214399887",
+		ft = "http://www.roblox.com/asset/?id=214399894",
+		lf = "http://www.roblox.com/asset/?id=214405668",
+		rt = "http://www.roblox.com/asset/?id=214399899",
+		up = "http://www.roblox.com/asset/?id=214399889"
+	},
+	["Blossom"] = {
+		bk = "http://www.roblox.com/asset/?id=271042516",
+		dn = "http://www.roblox.com/asset/?id=271077243",
+		ft = "http://www.roblox.com/asset/?id=271042556",
+		lf = "http://www.roblox.com/asset/?id=271042310",
+		rt = "http://www.roblox.com/asset/?id=271042467",
+		up = "http://www.roblox.com/asset/?id=271077958"
+	},
+	["Red night"] = {
+		bk = "http://www.roblox.com/Asset/?ID=401664839",
+		dn = "http://www.roblox.com/Asset/?ID=401664862",
+		ft = "http://www.roblox.com/Asset/?ID=401664960",
+		lf = "http://www.roblox.com/Asset/?ID=401664881",
+		rt = "http://www.roblox.com/Asset/?ID=401664901",
+		up = "http://www.roblox.com/Asset/?ID=401664936"
+	},
+	["Purple default"] = {
+		bk = "http://www.roblox.com/asset/?id=13694952867",
+		dn = "http://www.roblox.com/asset/?id=13694968325",
+		ft = "http://www.roblox.com/asset/?id=13694980654",
+		lf = "http://www.roblox.com/asset/?id=13694998113",
+		rt = "http://www.roblox.com/asset/?id=13695002700",
+		up = "http://www.roblox.com/asset/?id=13695007103"
+	},
+	["Foggy"] = {
+		bk = "rbxassetid://1370717244",
+		dn = "rbxassetid://1370717336",
+		ft = "rbxassetid://1370717438",
+		lf = "rbxassetid://1370717567",
+		rt = "rbxassetid://1370717698",
+		up = "rbxassetid://1370717782"
+	}
+}
+
 local function applyWorldModulation()
 	local Lighting = game:GetService("Lighting")
-	if automationState.timeOfDay ~= 12 then
-		Lighting.ClockTime = automationState.timeOfDay
-	end
+	Lighting.ClockTime = automationState.timeOfDay
 	Lighting.Brightness = automationState.brightness
+	
+	local colorCorrection = Lighting:FindFirstChild("KpopColorCorrection") or Instance.new("ColorCorrectionEffect")
+	colorCorrection.Name = "KpopColorCorrection"
+	colorCorrection.Saturation = automationState.saturation
+	colorCorrection.ExposureCompensation = automationState.exposure
+	colorCorrection.Parent = Lighting
+	
+	Lighting.Ambient = automationState.ambient
+	
+	local atmosphere = Lighting:FindFirstChild("KpopAtmosphere")
+	if automationState.atmosphere.enabled then
+		if not atmosphere then
+			atmosphere = Instance.new("Atmosphere")
+			atmosphere.Name = "KpopAtmosphere"
+			atmosphere.Parent = Lighting
+		end
+		atmosphere.Color = automationState.atmosphere.color
+		atmosphere.Decay = automationState.atmosphere.decay
+		atmosphere.Density = automationState.atmosphere.density
+		atmosphere.Glare = automationState.atmosphere.glare
+		atmosphere.Haze = automationState.atmosphere.haze
+	elseif atmosphere then
+		atmosphere:Destroy()
+	end
+	
+	local sky = Lighting:FindFirstChildOfClass("Sky") or Instance.new("Sky")
+	sky.Parent = Lighting
+	if automationState.skybox.enabled then
+		local data = skyboxes[automationState.skybox.selected]
+		if automationState.skybox.selected == "Custom" then
+			data = automationState.skybox.custom
+		end
+		if data then
+			sky.SkyboxBk = data.bk or ""
+			sky.SkyboxDn = data.dn or ""
+			sky.SkyboxFt = data.ft or ""
+			sky.SkyboxLf = data.lf or ""
+			sky.SkyboxRt = data.rt or ""
+			sky.SkyboxUp = data.up or ""
+		end
+	end
+	
+	if automationState.fog.enabled then
+		Lighting.FogColor = automationState.fog.color
+		Lighting.FogStart = automationState.fog.start
+		Lighting.FogEnd = automationState.fog.finish
+	end
 end
 
 local function updateCarCustomization()
@@ -1797,34 +1966,101 @@ local function buildLibraryUi()
 		Name = "World Modulation",
 		Side = 1,
 	})
+	WorldModSec:Toggle({
+		Name = "Enable Atmosphere",
+		Flag = "KpopAtmoEnable",
+		Default = false,
+		Callback = function(v) automationState.atmosphere.enabled = v end,
+	})
+	WorldModSec:Colorpicker({
+		Name = "Atmosphere Color",
+		Flag = "KpopAtmoColor",
+		Default = Color3.fromRGB(238, 147, 237),
+		Callback = function(v) automationState.atmosphere.color = v end,
+	})
+	WorldModSec:Slider({
+		Name = "Atmosphere Density",
+		Flag = "KpopAtmoDensity",
+		Min = 0, Max = 1, Default = 0.4, Decimals = 2,
+		Callback = function(v) automationState.atmosphere.density = v end,
+	})
 	WorldModSec:Slider({
 		Name = "Brightness",
 		Flag = "KpopBrightness",
-		Min = 0,
-		Max = 10,
-		Default = 3,
-		Decimals = 1,
-		Callback = function(v)
-			automationState.brightness = v
-			applyWorldModulation()
-		end,
+		Min = 0, Max = 10, Default = 3, Decimals = 1,
+		Callback = function(v) automationState.brightness = v end,
+	})
+	WorldModSec:Slider({
+		Name = "Saturation",
+		Flag = "KpopSaturation",
+		Min = -5, Max = 5, Default = 0, Decimals = 1,
+		Callback = function(v) automationState.saturation = v end,
 	})
 	WorldModSec:Slider({
 		Name = "Time of Day",
 		Flag = "KpopTimeOfDay",
-		Min = 0,
-		Max = 24,
-		Default = 12,
-		Decimals = 1,
-		Callback = function(v)
-			automationState.timeOfDay = v
-			applyWorldModulation()
-		end,
+		Min = 0, Max = 24, Default = 12, Decimals = 1,
+		Callback = function(v) automationState.timeOfDay = v end,
+	})
+
+	local SkySec = VisPage:Section({
+		Name = "Skybox",
+		Side = 1,
+	})
+	SkySec:Toggle({
+		Name = "Enable Skybox",
+		Flag = "KpopSkyEnable",
+		Default = false,
+		Callback = function(v) automationState.skybox.enabled = v end,
+	})
+	SkySec:Dropdown({
+		Name = "Select Skybox",
+		Flag = "KpopSkySelect",
+		Default = "Jungle",
+		Items = {"Jungle", "Blossom", "Red night", "Purple default", "Foggy", "Custom"},
+		Callback = function(v) automationState.skybox.selected = v end,
+	})
+	
+	local FogSec = VisPage:Section({
+		Name = "Fog",
+		Side = 1,
+	})
+	FogSec:Toggle({
+		Name = "Enable Fog",
+		Flag = "KpopFogEnable",
+		Default = false,
+		Callback = function(v) automationState.fog.enabled = v end,
+	})
+	FogSec:Colorpicker({
+		Name = "Fog Color",
+		Flag = "KpopFogColor",
+		Default = Color3.fromRGB(128, 128, 128),
+		Callback = function(v) automationState.fog.color = v end,
+	})
+	FogSec:Slider({
+		Name = "Fog Start",
+		Flag = "KpopFogStart",
+		Min = 0, Max = 10000, Default = 0,
+		Callback = function(v) automationState.fog.start = v end,
+	})
+	FogSec:Slider({
+		Name = "Fog End",
+		Flag = "KpopFogEnd",
+		Min = 0, Max = 10000, Default = 800,
+		Callback = function(v) automationState.fog.finish = v end,
 	})
 
 	local HudSec = VisPage:Section({
 		Name = "HUD & Effects",
 		Side = 1,
+	})
+	HudSec:Toggle({
+		Name = "Center Panel",
+		Flag = "KpopCenterPanel",
+		Default = false,
+		Callback = function(v)
+			automationState.centerPanel = v
+		end,
 	})
 	HudSec:Slider({
 		Name = "Aspect Ratio",
@@ -2116,6 +2352,7 @@ function KpopDemon.Start()
 		updateCarCustomization()
 		updateInfiniteNitro()
 		applyWorldModulation()
+		updateCenterPanel()
 		
 		if automationState.aspectRatio ~= 100 then
 			local cam = workspace.CurrentCamera
