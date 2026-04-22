@@ -154,7 +154,89 @@ local automationState = {
 	disableTraffic = false,
 	webhookUrl = "",
 	sessionTotalMoney = 0,
+	rainbowCar = false,
+	carMaterial = "Plastic",
+	carColor = Color3.fromRGB(255, 255, 255),
+	infiniteNitro = false,
+	playerEsp = false,
+	aspectRatio = 100,
+	motionBlur = false,
+	brightness = 3,
+	timeOfDay = 12,
 }
+local playerEspTags = {}
+local function updatePlayerEsp()
+	if not automationState.playerEsp then
+		for _, tag in pairs(playerEspTags) do
+			tag:Destroy()
+		end
+		table.clear(playerEspTags)
+		return
+	end
+
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= localPlayer and p.Character and p.Character:FindFirstChild("Head") then
+			local head = p.Character.Head
+			local tag = playerEspTags[p.Name]
+			if not tag then
+				tag = Instance.new("BillboardGui")
+				tag.Name = "KpopEspTag"
+				tag.Size = UDim2.new(0, 100, 0, 50)
+				tag.StudsOffset = Vector3.new(0, 2, 0)
+				tag.AlwaysOnTop = true
+				
+				local label = Instance.new("TextLabel")
+				label.Parent = tag
+				label.BackgroundTransparency = 1
+				label.Size = UDim2.new(1, 0, 1, 0)
+				label.TextColor3 = Color3.new(1, 1, 1)
+				label.TextStrokeTransparency = 0
+				label.TextSize = 14
+				label.Font = Enum.Font.GothamBold
+				
+				playerEspTags[p.Name] = tag
+			end
+			tag.Parent = head
+			local dist = (localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart")) 
+				and (localPlayer.Character.HumanoidRootPart.Position - head.Position).Magnitude or 0
+			tag.TextLabel.Text = string.format("%s\n[%d m]", p.DisplayName, math.floor(dist))
+		end
+	end
+end
+
+local function applyWorldModulation()
+	local Lighting = game:GetService("Lighting")
+	if automationState.timeOfDay ~= 12 then
+		Lighting.ClockTime = automationState.timeOfDay
+	end
+	Lighting.Brightness = automationState.brightness
+end
+
+local function updateCarCustomization()
+	local car, _ = getLocalPlayerVehicleSeat()
+	if not car then return end
+	
+	local color = automationState.carColor
+	if automationState.rainbowCar then
+		color = Color3.fromHSV(tick() % 5 / 5, 1, 1)
+	end
+	
+	for _, v in ipairs(car:GetDescendants()) do
+		if v:IsA("BasePart") then
+			v.Color = color
+			v.Material = Enum.Material[automationState.carMaterial]
+		end
+	end
+end
+
+local function updateInfiniteNitro()
+	if not automationState.infiniteNitro then return end
+	local car, _ = getLocalPlayerVehicleSeat()
+	if not car then return end
+	
+	local maxNitro = car:GetAttribute("MaxNitrous") or 100
+	car:SetAttribute("Nitrous", maxNitro)
+end
 local noclipBaselineByPart = {}
 local noclipBoundCar = nil
 local steerPulseAccum = 0
@@ -1654,6 +1736,116 @@ local function buildLibraryUi()
 		end,
 	})
 
+	local CarCustSec = ModsPage:Section({
+		Name = "Car Customization",
+		Description = "Change appearance of your car",
+		Side = 1,
+	})
+	CarCustSec:Toggle({
+		Name = "Rainbow Car",
+		Flag = "KpopRainbowCar",
+		Default = false,
+		Callback = function(v)
+			automationState.rainbowCar = v
+		end,
+	})
+	CarCustSec:Colorpicker({
+		Name = "Car Color",
+		Flag = "KpopCarColor",
+		Default = Color3.fromRGB(255, 255, 255),
+		Callback = function(v)
+			automationState.carColor = v
+		end,
+	})
+	CarCustSec:Dropdown({
+		Name = "Car Material",
+		Flag = "KpopCarMaterial",
+		Default = "Plastic",
+		Items = {"Plastic", "SmoothPlastic", "Neon", "ForceField", "Glass", "Metal", "DiamondPlate"},
+		Callback = function(v)
+			automationState.carMaterial = v
+		end,
+	})
+	CarCustSec:Toggle({
+		Name = "Infinite Nitro",
+		Flag = "KpopInfNitro",
+		Default = false,
+		Callback = function(v)
+			automationState.infiniteNitro = v
+		end,
+	})
+
+	Window:Category("Visuals")
+	local VisPage = Window:Page({
+		Name = "Visuals",
+		Icon = "108839695397679",
+	})
+	local EspSec = VisPage:Section({
+		Name = "ESP",
+		Side = 1,
+	})
+	EspSec:Toggle({
+		Name = "Name ESP",
+		Flag = "KpopNameEsp",
+		Default = false,
+		Callback = function(v)
+			automationState.playerEsp = v
+		end,
+	})
+
+	local WorldModSec = VisPage:Section({
+		Name = "World Modulation",
+		Side = 1,
+	})
+	WorldModSec:Slider({
+		Name = "Brightness",
+		Flag = "KpopBrightness",
+		Min = 0,
+		Max = 10,
+		Default = 3,
+		Decimals = 1,
+		Callback = function(v)
+			automationState.brightness = v
+			applyWorldModulation()
+		end,
+	})
+	WorldModSec:Slider({
+		Name = "Time of Day",
+		Flag = "KpopTimeOfDay",
+		Min = 0,
+		Max = 24,
+		Default = 12,
+		Decimals = 1,
+		Callback = function(v)
+			automationState.timeOfDay = v
+			applyWorldModulation()
+		end,
+	})
+
+	local HudSec = VisPage:Section({
+		Name = "HUD & Effects",
+		Side = 1,
+	})
+	HudSec:Slider({
+		Name = "Aspect Ratio",
+		Flag = "KpopAspectRatio",
+		Min = 10,
+		Max = 200,
+		Default = 100,
+		Suffix = "%",
+		Callback = function(v)
+			automationState.aspectRatio = v
+		end,
+	})
+	HudSec:Toggle({
+		Name = "Motion Blur",
+		Flag = "KpopMotionBlur",
+		Default = false,
+		Callback = function(v)
+			automationState.motionBlur = v
+		end,
+	})
+
 	Window:Category("Movement")
 	local MovePage = Window:Page({
 		Name = "Physics",
@@ -1920,6 +2112,30 @@ function KpopDemon.Start()
 		end
 		stepCarNoclip()
 		holdCheckpointSnapIfChaining()
+		updatePlayerEsp()
+		updateCarCustomization()
+		updateInfiniteNitro()
+		applyWorldModulation()
+		
+		if automationState.aspectRatio ~= 100 then
+			local cam = workspace.CurrentCamera
+			cam.CFrame = cam.CFrame * CFrame.new(0, 0, 0, 1, 0, 0, 0, automationState.aspectRatio / 100, 0, 0, 0, 1)
+		end
+		
+		local Lighting = game:GetService("Lighting")
+		local blur = Lighting:FindFirstChild("KpopMotionBlur")
+		if automationState.motionBlur then
+			if not blur then
+				blur = Instance.new("BlurEffect")
+				blur.Name = "KpopMotionBlur"
+				blur.Parent = Lighting
+			end
+			local velocity = (localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart"))
+				and localPlayer.Character.HumanoidRootPart.Velocity.Magnitude or 0
+			blur.Size = math.clamp(velocity / 10, 0, 20)
+		elseif blur then
+			blur:Destroy()
+		end
 	end)
 	getge().KpopDemonUnload = KpopDemon.Unload
 end
