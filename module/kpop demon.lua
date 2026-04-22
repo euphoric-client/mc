@@ -117,6 +117,16 @@ local lastTeleportClock = 0
 local lastChainTeleportClock = 0
 local speedMultiplier = Config.SpeedMultiplierDefault
 local steeringSensitivity = Config.SteeringSensitivityDefault
+
+local function setSpeedMultiplier(v)
+	speedMultiplier = v
+	reapplyVehicleTune()
+end
+
+local function setSteeringSensitivity(v)
+	steeringSensitivity = v
+	reapplyVehicleTune()
+end
 local lastSoloQueueClock = 0
 local lastWithPlayerQueueClock = 0
 local queuePlayersTeleportedOnce = false
