@@ -153,6 +153,7 @@ local automationState = {
 	antiAfk = false,
 	waitBeforeFinish = true,
 	finishWaitTime = 120,
+	disableTraffic = false,
 }
 local noclipBaselineByPart = {}
 local noclipBoundCar = nil
@@ -1466,6 +1467,73 @@ local function buildLibraryUi()
 			automationState.finishWaitTime = v
 		end,
 	})
+	Window:Category("Modifications")
+	local ModsPage = Window:Page({
+		Name = "Mods",
+		Icon = "108839695397679",
+	})
+	
+	local TuneSec = ModsPage:Section({
+		Name = "Car Tuning",
+		Description = "Modify car performance (applies when seated)",
+		Side = 1,
+	})
+	TuneSec:Toggle({
+		Name = "Apply Performance Mods",
+		Flag = "KpopApplyMods",
+		Default = false,
+		Callback = function(v)
+			Config.ApplySpeedMultiplierToChassisTune = v
+			Config.ApplySteeringTune = v
+			reapplyVehicleTune()
+		end,
+	})
+	TuneSec:Slider({
+		Name = "Top Speed Multiplier",
+		Flag = "KpopSpeedMult",
+		Min = 0.1,
+		Max = 5,
+		Default = speedMultiplier,
+		Decimals = 2,
+		Suffix = "x",
+		Callback = function(v)
+			setSpeedMultiplier(v)
+		end,
+	})
+	TuneSec:Slider({
+		Name = "Steering Multiplier",
+		Flag = "KpopSteerMult",
+		Min = 0.1,
+		Max = 5,
+		Default = steeringSensitivity,
+		Decimals = 2,
+		Suffix = "x",
+		Callback = function(v)
+			setSteeringSensitivity(v)
+		end,
+	})
+
+	local WorldSec = ModsPage:Section({
+		Name = "World Options",
+		Description = "Adjust world traffic and physics",
+		Side = 1,
+	})
+	WorldSec:Toggle({
+		Name = "Disable Traffic (Removes NPC Cars)",
+		Flag = "KpopDisableTraffic",
+		Default = false,
+		Callback = function(v)
+			automationState.disableTraffic = v
+		end,
+	})
+	WorldSec:Toggle({
+		Name = "Disable Car Collisions (Noclip)",
+		Flag = "KpopDisableCollisions",
+		Default = false,
+		Callback = function(v)
+			automationState.carNoclip = v
+		end,
+	})
 
 	Window:Category("Movement")
 	local MovePage = Window:Page({
@@ -1478,14 +1546,7 @@ local function buildLibraryUi()
 		Icon = "126497581491926",
 		Side = 1,
 	})
-	CollideSec:Toggle({
-		Name = "Car noclip (when seated)",
-		Flag = "KpopCarNoclip",
-		Default = false,
-		Callback = function(v)
-			automationState.carNoclip = v
-		end,
-	})
+
 	CollideSec:Toggle({
 		Name = "Auto car noclip while Racing",
 		Flag = "KpopAutoRaceNoclip",
@@ -1640,6 +1701,15 @@ function KpopDemon.Start()
 	scriptRenderConn = RunService.RenderStepped:Connect(function(dt)
 		if not kpopScriptActive then
 			return
+		end
+		if automationState.disableTraffic then
+			local npcs = Workspace:FindFirstChild("NPCVehicles")
+			if npcs then
+				local vehicles = npcs:FindFirstChild("Vehicles")
+				if vehicles then
+					vehicles:ClearAllChildren()
+				end
+			end
 		end
 		stepCarNoclip()
 		holdCheckpointSnapIfChaining()
