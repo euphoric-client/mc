@@ -150,9 +150,9 @@ local automationState = {
 	selectedRaceId = "Race5",
 	carNoclip = false,
 	autoNoclipWhileRacing = true,
-	carFly = false,
-	checkpointGuidedFly = false,
 	antiAfk = false,
+	waitBeforeFinish = true,
+	finishWaitTime = 120,
 }
 local noclipBaselineByPart = {}
 local noclipBoundCar = nil
@@ -936,13 +936,15 @@ local function tryTeleportCheckpointChain()
 
 	-- Check if the NEXT teleport would be to the Finish line
 	if isNextCheckpointFinish(race, entry) then
-		-- Start the 2-minute wait timer if not already waiting
-		if not chainFinishWaitUntil then
-			chainFinishWaitUntil = now + 120 -- 2 minutes
-		end
-		-- Don't teleport until the wait is over
-		if now < chainFinishWaitUntil then
-			return
+		if automationState.waitBeforeFinish then
+			-- Start the wait timer if not already waiting
+			if not chainFinishWaitUntil then
+				chainFinishWaitUntil = now + automationState.finishWaitTime
+			end
+			-- Don't teleport until the wait is over
+			if now < chainFinishWaitUntil then
+				return
+			end
 		end
 		chainFinishWaitUntil = nil
 	else
@@ -1325,125 +1327,15 @@ local function buildLibraryUi()
 		Icon = "123944728972740",
 	})
 	local Live = Overview:Section({
-		Name = "Race session",
-		Description = "phase, speed, checkpoints",
+		Name = "Controls",
+		Description = "Script options",
 		Icon = "138827881557940",
 		Side = 1,
 	})
-	labels.phase = Live:Label("phase: idle")
-	labels.mult = Live:Label("tune mult: —")
-	labels.speed = Live:Label("speed: —")
-	labels.tune = Live:Label("tune: —")
-	labels.race = Live:Label("lobby race: —")
-	labels.racesCount = Live:Label("workspace races: —")
-	labels.state = Live:Label("active: —")
-	labels.checkpoint = Live:Label("checkpoint: —")
 	Live:Button({
 		Name = "Unload script",
 		Callback = function()
 			KpopDemon.Unload()
-		end,
-	})
-
-	Window:Category("Tuning")
-	local TunePage = Window:Page({
-		Name = "Drive",
-		Icon = "134236649319095",
-	})
-	local PowerSec = TunePage:Section({
-		Name = "Power",
-		Description = "Horsepower, E_Horsepower, E_Torque vs baselines",
-		Icon = "108839695397679",
-		Side = 1,
-	})
-	PowerSec:Toggle({
-		Name = "Apply power multiplier to chassis tune",
-		Flag = "KpopApplyPowerTune",
-		Default = Config.ApplySpeedMultiplierToChassisTune,
-		Callback = function(v)
-			Config.ApplySpeedMultiplierToChassisTune = v
-			reapplyVehicleTune()
-		end,
-	})
-	PowerSec:Slider({
-		Name = "Speed (power) multiplier",
-		Flag = "KpopSpeedMult",
-		Min = Config.SpeedMultiplierMin,
-		Max = Config.SpeedMultiplierMax,
-		Default = speedMultiplier,
-		Decimals = 2,
-		Suffix = "x",
-		Callback = function(v)
-			setSpeedMultiplier(v)
-		end,
-	})
-	local SteerSec = TunePage:Section({
-		Name = "Steering",
-		Description = "SteerSpeed, SteerRatio, MinSteer vs baselines",
-		Icon = "126497581491926",
-		Side = 1,
-	})
-	SteerSec:Toggle({
-		Name = "Apply steering sensitivity to chassis tune",
-		Flag = "KpopApplySteerTune",
-		Default = Config.ApplySteeringTune,
-		Callback = function(v)
-			Config.ApplySteeringTune = v
-			reapplyVehicleTune()
-		end,
-	})
-	SteerSec:Slider({
-		Name = "Steering sensitivity",
-		Flag = "KpopSteerSens",
-		Min = Config.SteeringSensitivityMin,
-		Max = Config.SteeringSensitivityMax,
-		Default = steeringSensitivity,
-		Decimals = 2,
-		Suffix = "x",
-		Callback = function(v)
-			setSteeringSensitivity(v)
-		end,
-	})
-	local AutoInputSec = TunePage:Section({
-		Name = "Drive assist timing",
-		Description = "virtual steer pulses and throttle distance",
-		Icon = "103180437044643",
-		Side = 1,
-	})
-	AutoInputSec:Slider({
-		Name = "Auto drive V1 steer pulse",
-		Flag = "KpopV1Pulse",
-		Min = 0.02,
-		Max = 0.35,
-		Default = Config.AutoDriveV1SteerPulse,
-		Decimals = 3,
-		Suffix = "s",
-		Callback = function(v)
-			Config.AutoDriveV1SteerPulse = v
-		end,
-	})
-	AutoInputSec:Slider({
-		Name = "Auto drive V2 steer pulse",
-		Flag = "KpopV2Pulse",
-		Min = 0.02,
-		Max = 0.25,
-		Default = Config.AutoDriveV2SteerPulse,
-		Decimals = 3,
-		Suffix = "s",
-		Callback = function(v)
-			Config.AutoDriveV2SteerPulse = v
-		end,
-	})
-	AutoInputSec:Slider({
-		Name = "Min distance before full throttle",
-		Flag = "KpopThrottleDist",
-		Min = 8,
-		Max = 200,
-		Default = Config.AutoDriveMinThrottleDistance,
-		Decimals = 0,
-		Suffix = "stu",
-		Callback = function(v)
-			Config.AutoDriveMinThrottleDistance = v
 		end,
 	})
 
@@ -1477,7 +1369,7 @@ local function buildLibraryUi()
 		end,
 	})
 	SoloSec:Toggle({
-		Name = "Auto queue solo",
+		Name = "Auto Queue Solo",
 		Flag = "KpopAutoSolo",
 		Default = false,
 		Callback = function(v)
@@ -1485,7 +1377,7 @@ local function buildLibraryUi()
 		end,
 	})
 	SoloSec:Toggle({
-		Name = "Auto queue with players (stay in border circle)",
+		Name = "Auto Queue with Players",
 		Flag = "KpopAutoQueuePlayers",
 		Default = false,
 		Callback = function(v)
@@ -1494,13 +1386,13 @@ local function buildLibraryUi()
 	})
 
 	local PresetSec = Farm:Section({
-		Name = "Auto farm",
-		Description = "Turn on: solo queue, checkpoint chain, and V1 steer. Turn off: stops all of those together.",
+		Name = "Auto Farm",
+		Description = "Enable solo queue and teleport chain",
 		Icon = "138827881557940",
 		Side = 1,
 	})
 	PresetSec:Toggle({
-		Name = "Auto farm preset",
+		Name = "Auto Farm Preset",
 		Flag = "KpopAutoFarm",
 		Default = false,
 		Callback = function(v)
@@ -1508,22 +1400,13 @@ local function buildLibraryUi()
 			if v then
 				automationState.teleportChain = true
 				automationState.autoQueueSolo = true
-				automationState.autoDriveV2 = false
-				automationState.autoDriveV1 = true
 				syncLibFlag("KpopTpChain", true)
 				syncLibFlag("KpopAutoSolo", true)
-				syncLibFlag("KpopDriveV2", false)
-				syncLibFlag("KpopDriveV1", true)
 			else
 				automationState.teleportChain = false
 				automationState.autoQueueSolo = false
-				automationState.autoDriveV1 = false
-				automationState.autoDriveV2 = false
 				syncLibFlag("KpopTpChain", false)
 				syncLibFlag("KpopAutoSolo", false)
-				syncLibFlag("KpopDriveV1", false)
-				syncLibFlag("KpopDriveV2", false)
-				releaseAllVirtualKeys()
 			end
 		end,
 	})
@@ -1544,13 +1427,13 @@ local function buildLibraryUi()
 	})
 
 	local CpSec = Farm:Section({
-		Name = "Checkpoint route",
-		Description = "Only while Racing; lower seconds = faster teleports (capped by cooldown)",
+		Name = "Checkpoint Route",
+		Description = "Teleports through checkpoints while racing",
 		Icon = "103180437044643",
 		Side = 1,
 	})
 	CpSec:Toggle({
-		Name = "Teleport chain",
+		Name = "Teleport Chain",
 		Flag = "KpopTpChain",
 		Default = false,
 		Callback = function(v)
@@ -1558,89 +1441,29 @@ local function buildLibraryUi()
 			if not v and automationState.autoFarm then
 				automationState.autoFarm = false
 				automationState.autoQueueSolo = false
-				automationState.autoDriveV1 = false
-				automationState.autoDriveV2 = false
 				syncLibFlag("KpopAutoFarm", false)
 				syncLibFlag("KpopAutoSolo", false)
-				syncLibFlag("KpopDriveV1", false)
-				syncLibFlag("KpopDriveV2", false)
-				releaseAllVirtualKeys()
 			end
+		end,
+	})
+	CpSec:Toggle({
+		Name = "Wait Before Finish Line",
+		Flag = "KpopWaitFinish",
+		Default = true,
+		Callback = function(v)
+			automationState.waitBeforeFinish = v
 		end,
 	})
 	CpSec:Slider({
-		Name = "Seconds between checkpoint teleports",
-		Flag = "KpopTpRate",
-		Min = math.max(
-			Config.TeleportCooldownSeconds or 0,
-			type(Config.TeleportEverySecondsMin) == "number" and Config.TeleportEverySecondsMin or 0.35
-		),
-		Max = math.max(
-			type(Config.TeleportEverySecondsMax) == "number" and Config.TeleportEverySecondsMax or 45,
-			Config.TeleportCooldownSeconds or 0
-		),
-		Default = math.clamp(
-			type(Config.TeleportEverySeconds) == "number" and Config.TeleportEverySeconds or 2.5,
-			math.max(
-				Config.TeleportCooldownSeconds or 0,
-				type(Config.TeleportEverySecondsMin) == "number" and Config.TeleportEverySecondsMin or 0.35
-			),
-			type(Config.TeleportEverySecondsMax) == "number" and Config.TeleportEverySecondsMax or 45
-		),
-		Decimals = 2,
+		Name = "Finish Wait Time",
+		Flag = "KpopFinishWait",
+		Min = 0,
+		Max = 300,
+		Default = 120,
+		Decimals = 0,
 		Suffix = "s",
 		Callback = function(v)
-			Config.TeleportEverySeconds = v
-			Config.TeleportChainInterval = v
-			Config.CheckpointDwellSeconds = v
-		end,
-	})
-
-	local AssistSec = Farm:Section({
-		Name = "Driver assist",
-		Description = "Virtual keys while Racing; guided fly needs chain and auto farm off",
-		Icon = "108839695397679",
-		Side = 1,
-	})
-	AssistSec:Toggle({
-		Name = "Auto drive V1 (hold steer)",
-		Flag = "KpopDriveV1",
-		Default = false,
-		Callback = function(v)
-			automationState.autoDriveV1 = v
-			if v then
-				automationState.autoDriveV2 = false
-				syncLibFlag("KpopDriveV2", false)
-			end
-			if not v and not automationState.autoDriveV2 then
-				releaseAllVirtualKeys()
-			end
-		end,
-	})
-	AssistSec:Toggle({
-		Name = "Auto drive V2 (pulse steer)",
-		Flag = "KpopDriveV2",
-		Default = false,
-		Callback = function(v)
-			automationState.autoDriveV2 = v
-			if v then
-				automationState.autoDriveV1 = false
-				syncLibFlag("KpopDriveV1", false)
-			end
-			if not v and not automationState.autoDriveV1 then
-				releaseAllVirtualKeys()
-			end
-		end,
-	})
-	AssistSec:Toggle({
-		Name = "Guided fly to next checkpoint",
-		Flag = "KpopCpGuidedFly",
-		Default = false,
-		Callback = function(v)
-			automationState.checkpointGuidedFly = v
-			if v then
-				releaseAllVirtualKeys()
-			end
+			automationState.finishWaitTime = v
 		end,
 	})
 
@@ -1669,35 +1492,6 @@ local function buildLibraryUi()
 		Default = true,
 		Callback = function(v)
 			automationState.autoNoclipWhileRacing = v
-		end,
-	})
-	local FlySec = MovePage:Section({
-		Name = "Car fly",
-		Description = "WASD Space Shift camera-relative; disables auto steer while on",
-		Icon = "108839695397679",
-		Side = 1,
-	})
-	FlySec:Toggle({
-		Name = "Car fly",
-		Flag = "KpopCarFly",
-		Default = false,
-		Callback = function(v)
-			automationState.carFly = v
-			if v then
-				releaseAllVirtualKeys()
-			end
-		end,
-	})
-	FlySec:Slider({
-		Name = "Car fly speed",
-		Flag = "KpopCarFlySpeed",
-		Min = Config.CarFlySpeedMin,
-		Max = Config.CarFlySpeedMax,
-		Default = Config.CarFlySpeed,
-		Decimals = 0,
-		Suffix = "stu/s",
-		Callback = function(v)
-			Config.CarFlySpeed = v
 		end,
 	})
 
@@ -1848,99 +1642,7 @@ function KpopDemon.Start()
 			return
 		end
 		stepCarNoclip()
-		local flyOn = automationAllowed() and automationState.carFly
-		local guidedOn = automationAllowed()
-			and automationState.checkpointGuidedFly
-			and not flyOn
-			and not automationState.teleportChain
-			and not automationState.autoFarm
-		if flyOn then
-			releaseAllVirtualKeys()
-			runCarFlyStep(dt)
-		end
 		holdCheckpointSnapIfChaining()
-		if guidedOn then
-			releaseAllVirtualKeys()
-			runCheckpointGuidedFlyStep()
-		end
-		if labels.phase then
-			labels.phase:SetText("phase: " .. getRacePhaseText())
-		end
-		if labels.mult then
-			labels.mult:SetText(
-				string.format(
-					"power x%.2f (%s) | steer x%.2f (%s)",
-					speedMultiplier,
-					Config.ApplySpeedMultiplierToChassisTune and "on" or "off",
-					steeringSensitivity,
-					Config.ApplySteeringTune and "on" or "off"
-				)
-			)
-		end
-
-		local char = localPlayer.Character
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		local seat = hum and hum.SeatPart
-		local car = seat and seat:FindFirstAncestorWhichIsA("Model")
-		local v = seat and seat.Velocity.Magnitude or 0
-		local vScaled = v * speedMultiplier
-		local mph = mphApproxFromStudsPerSec(vScaled)
-		if labels.speed then
-			labels.speed:SetText(
-				string.format("speed: %.0f studs/s | ~%.0f mph (x%.2f)", vScaled, mph, speedMultiplier)
-			)
-		end
-
-		local snap = readTuneSnapshot(car)
-		if labels.tune then
-			if snap then
-				labels.tune:SetText(
-					string.format(
-						"tune: hp %s steerSpeed %s steerRatio %s",
-						tostring(snap.Horsepower),
-						tostring(snap.SteerSpeed),
-						tostring(snap.SteerRatio)
-					)
-				)
-			else
-				labels.tune:SetText("tune: —")
-			end
-		end
-
-		local lobbyRace = Races.GetRaceFromPlayer(localPlayer)
-		if labels.race then
-			labels.race:SetText("lobby race: " .. raceLobbyLabel(lobbyRace))
-		end
-		if labels.racesCount then
-			labels.racesCount:SetText("workspace races: " .. tostring(countWorkspaceRaceFolders()))
-		end
-
-		local activeRace, entry = racerEntryForLocalPlayer()
-		if labels.state and labels.checkpoint then
-			if activeRace and entry then
-				local st = activeRace.Folder.State.Value
-				local cp = entry:GetAttribute("Checkpoint")
-				labels.state:SetText("active: " .. raceLobbyLabel(activeRace) .. " | state " .. tostring(st))
-				labels.checkpoint:SetText("checkpoint attr: " .. tostring(cp))
-			else
-				labels.state:SetText("active: —")
-				labels.checkpoint:SetText("checkpoint attr: —")
-			end
-		end
-
-		local wantDrive = automationAllowed()
-			and not flyOn
-			and not guidedOn
-			and (
-				automationState.autoFarm
-				or automationState.autoDriveV1
-				or automationState.autoDriveV2
-			)
-		if wantDrive then
-			runAutoDriveStep(dt)
-		elseif not flyOn and not guidedOn then
-			releaseAllVirtualKeys()
-		end
 	end)
 	getge().KpopDemonUnload = KpopDemon.Unload
 end
