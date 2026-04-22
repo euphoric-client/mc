@@ -1384,6 +1384,13 @@ local function kpopPerformUnload()
 	mainWindow = nil
 	table.clear(labels)
 	kpopDestroyMainWindowDeferred(win)
+	pcall(function()
+		for _, v in ipairs(game:GetService("Lighting"):GetChildren()) do
+			if v:IsA("BlurEffect") then
+				v:Destroy()
+			end
+		end
+	end)
 	local ge = getge()
 	ge.KpopDemonStarted = nil
 	ge.KpopDemonUnload = nil
