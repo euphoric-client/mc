@@ -843,7 +843,7 @@ local function releaseAllVirtualKeys()
 end
 
 local function clampSpeedMultiplier(v)
-	return math.clamp(v, Config.SpeedMultiplierMin, Config.SpeedMultiplierMax)
+	return v
 end
 
 local function setSpeedMultiplier(newVal)
@@ -1458,7 +1458,7 @@ local function buildLibraryUi()
 		Name = "Top Speed Multiplier",
 		Flag = "KpopSpeedMult",
 		Min = 0.1,
-		Max = 5,
+		Max = 50,
 		Default = speedMultiplier,
 		Decimals = 2,
 		Suffix = "x",
