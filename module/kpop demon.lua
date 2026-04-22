@@ -1743,7 +1743,7 @@ local function buildLibraryUi()
 
 	Window:Category("Overview")
 	local Overview = Window:Page({
-		Name = "Status",
+		Name = "Overview",
 		Icon = "123944728972740",
 	})
 	local Live = Overview:Section({
@@ -1764,7 +1764,7 @@ local function buildLibraryUi()
 		Description = "Discord logs for race results",
 		Side = 1,
 	})
-	WebSec:Input({
+	WebSec:Textbox({
 		Name = "Webhook URL",
 		Flag = "KpopWebhook",
 		Placeholder = "https://discord.com/api/webhooks/...",
@@ -1891,7 +1891,7 @@ local function buildLibraryUi()
 	})
 	Window:Category("Modifications")
 	local ModsPage = Window:Page({
-		Name = "Mods",
+		Name = "Modifications",
 		Icon = "108839695397679",
 	})
 	
@@ -1970,8 +1970,7 @@ local function buildLibraryUi()
 			automationState.rainbowCar = v
 		end,
 	})
-	CarCustSec:Colorpicker({
-		Name = "Car Color",
+	CarCustSec:Label("Car Color"):Colorpicker({
 		Flag = "KpopCarColor",
 		Default = Color3.fromRGB(255, 255, 255),
 		Callback = function(v)
@@ -2024,14 +2023,12 @@ local function buildLibraryUi()
 		Default = false,
 		Callback = function(v) automationState.atmosphere.enabled = v end,
 	})
-	WorldModSec:Colorpicker({
-		Name = "Atmosphere Color",
+	WorldModSec:Label("Atmosphere Color"):Colorpicker({
 		Flag = "KpopAtmoColor",
 		Default = Color3.fromRGB(238, 147, 237),
 		Callback = function(v) automationState.atmosphere.color = v end,
 	})
-	WorldModSec:Colorpicker({
-		Name = "Atmosphere Decay",
+	WorldModSec:Label("Atmosphere Decay"):Colorpicker({
 		Flag = "KpopAtmoDecay",
 		Default = Color3.fromRGB(255, 255, 255),
 		Callback = function(v) automationState.atmosphere.decay = v end,
@@ -2072,8 +2069,7 @@ local function buildLibraryUi()
 		Min = -10, Max = 10, Default = -0.5, Decimals = 2,
 		Callback = function(v) automationState.exposure = v end,
 	})
-	WorldModSec:Colorpicker({
-		Name = "Ambient Color",
+	WorldModSec:Label("Ambient Color"):Colorpicker({
 		Flag = "KpopAmbient",
 		Default = Color3.fromRGB(0, 0, 0),
 		Callback = function(v) automationState.ambient = v end,
@@ -2097,7 +2093,7 @@ local function buildLibraryUi()
 	})
 	local skyboxInputs = {}
 	for _, side in ipairs({"Bk", "Dn", "Ft", "Lf", "Rt", "Up"}) do
-		local input = SkySec:Input({
+		local input = SkySec:Textbox({
 			Name = "Skybox " .. side,
 			Flag = "KpopSky" .. side,
 			Placeholder = "Asset ID",
@@ -2109,9 +2105,7 @@ local function buildLibraryUi()
 	local function updateSkyboxInputVisibility(selected)
 		local visible = (selected == "Custom")
 		for _, input in ipairs(skyboxInputs) do
-			-- The library usually has a :Visible() or similar method on elements
-			-- If not, we might need to find another way, but typically they do.
-			pcall(function() input:Visible(visible) end)
+			pcall(function() input:SetVisibility(visible) end)
 		end
 	end
 	
@@ -2137,8 +2131,7 @@ local function buildLibraryUi()
 		Default = false,
 		Callback = function(v) automationState.fog.enabled = v end,
 	})
-	FogSec:Colorpicker({
-		Name = "Fog Color",
+	FogSec:Label("Fog Color"):Colorpicker({
 		Flag = "KpopFogColor",
 		Default = Color3.fromRGB(128, 128, 128),
 		Callback = function(v) automationState.fog.color = v end,
@@ -2190,7 +2183,7 @@ local function buildLibraryUi()
 
 	Window:Category("Movement")
 	local MovePage = Window:Page({
-		Name = "Physics",
+		Name = "Movement",
 		Icon = "138827881557940",
 	})
 	local CollideSec = MovePage:Section({
@@ -2211,7 +2204,7 @@ local function buildLibraryUi()
 
 	Window:Category("Teleport")
 	local TpPage = Window:Page({
-		Name = "Players",
+		Name = "Teleport",
 		Icon = "108839695397679",
 	})
 	local TpSec = TpPage:Section({
