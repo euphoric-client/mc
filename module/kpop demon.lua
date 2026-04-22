@@ -83,6 +83,7 @@ end
 
 local Config = resolveConfig()
 local Hotkeys = resolveHotkeys()
+Hotkeys.InstantBrake = Hotkeys.InstantBrake or Enum.KeyCode.X
 
 local function loadRemoteLibrary()
 	local url = Config.LibraryRemoteUrl
@@ -151,6 +152,8 @@ local automationState = {
 	waitBeforeFinish = true,
 	finishWaitTime = 120,
 	disableTraffic = false,
+	webhookUrl = "",
+	sessionTotalMoney = 0,
 }
 local noclipBaselineByPart = {}
 local noclipBoundCar = nil
@@ -846,6 +849,115 @@ local function clampSpeedMultiplier(v)
 	return v
 end
 
+local function instantBrakeCar()
+	local car, seat = getLocalPlayerVehicleSeat()
+	if car and seat then
+		seat.AssemblyLinearVelocity = Vector3.zero
+		seat.AssemblyAngularVelocity = Vector3.zero
+	end
+end
+
+local function sendRaceWebhook(data)
+	local url = automationState.webhookUrl
+	if not url or url == "" then
+		return
+	end
+
+	local embed = {
+		["title"] = "Race Completed!",
+		["description"] = "> You have finished a race in **Midnight Chasers**.",
+		["color"] = 0xed4245,
+		["fields"] = {
+			{ ["name"] = "Placement", ["value"] = "```" .. (data.place or "Unknown") .. "```", ["inline"] = true },
+			{ ["name"] = "Time", ["value"] = "```" .. (data.time or "00:00.000") .. "```", ["inline"] = true },
+			{ ["name"] = "Total Earned", ["value"] = "```$" .. (data.total or "0") .. "```", ["inline"] = false },
+			{ ["name"] = "Base Money", ["value"] = "```$" .. (data.base or "0") .. "```", ["inline"] = true },
+			{ ["name"] = "Bonus (Place)", ["value"] = "```$" .. (data.bonus or "0") .. "```", ["inline"] = true },
+			{ ["name"] = "2x Cash", ["value"] = "```$" .. (data.double or "0") .. "```", ["inline"] = true },
+			{ ["name"] = "VIP Bonus", ["value"] = "```$" .. (data.vip or "0") .. "```", ["inline"] = true },
+			{ ["name"] = "Session Total", ["value"] = "```$" .. (automationState.sessionTotalMoney or "0") .. "```", ["inline"] = false },
+		},
+		["footer"] = { ["text"] = "kpop demon • " .. os.date("%X") },
+	}
+
+	local payload = {
+		["embeds"] = { embed },
+	}
+
+	local success, json = pcall(game.GetService, game, "HttpService")
+	if success then
+		json = json:JSONEncode(payload)
+		local request = http_request or request or (syn and syn.request) or (http and http.request)
+		if request then
+			request({
+				Url = url,
+				Method = "POST",
+				Headers = { ["Content-Type"] = "application/json" },
+				Body = json,
+			})
+		end
+	end
+end
+
+local function trackRaceResults()
+	local lastResultsGui = nil
+	task.spawn(function()
+		while kpopScriptActive do
+			task.wait(1)
+			local gui = localPlayer:FindFirstChild("PlayerGui")
+			if not gui then
+				continue
+			end
+			local results = gui:FindFirstChild("RaceResults", true) or gui:FindFirstChild("Results", true)
+			if results and results.Visible and results ~= lastResultsGui then
+				lastResultsGui = results
+				task.wait(1) -- Wait for values to populate
+				local data = {
+					base = "0",
+					place = "N/A",
+					bonus = "0",
+					double = "0",
+					vip = "0",
+					total = "0",
+					time = "00:00.000",
+				}
+				pcall(function()
+					-- Simple heuristic based on common UI structures
+					for _, v in ipairs(results:GetDescendants()) do
+						if v:IsA("TextLabel") then
+							local t = v.Text
+							if string.find(t, ":") and string.len(t) >= 5 and string.find(t, "%.") then
+								data.time = t
+							elseif string.find(t, "#") then
+								data.place = t
+							elseif string.find(t, "%$") then
+								local num = string.gsub(t, "[^%d]", "")
+								local val = tonumber(num) or 0
+								local parentName = v.Parent.Name
+								if string.find(parentName, "Total") or string.find(t, "Total") then
+									data.total = t
+									automationState.sessionTotalMoney = (automationState.sessionTotalMoney or 0) + val
+								elseif string.find(parentName, "Base") or string.find(t, "Base") then
+									data.base = t
+								elseif string.find(parentName, "Place") or string.find(t, "Place") then
+									data.bonus = t
+								elseif string.find(parentName, "Cash") or string.find(t, "Cash") then
+									data.double = t
+								elseif string.find(parentName, "VIP") or string.find(t, "VIP") then
+									data.vip = t
+								end
+							end
+						end
+					end
+				end)
+				sendRaceWebhook(data)
+			elseif not results or not results.Visible then
+				lastResultsGui = nil
+			end
+		end
+	end)
+end
+
 local function setSpeedMultiplier(newVal)
 	newVal = clampSpeedMultiplier(newVal)
 	speedMultiplier = newVal
@@ -1337,6 +1449,40 @@ local function buildLibraryUi()
 		end,
 	})
 
+	local WebSec = Overview:Section({
+		Name = "Webhook",
+		Description = "Discord logs for race results",
+		Side = 1,
+	})
+	WebSec:Input({
+		Name = "Webhook URL",
+		Flag = "KpopWebhook",
+		Placeholder = "https://discord.com/api/webhooks/...",
+		Callback = function(v)
+			automationState.webhookUrl = v
+		end,
+	})
+	WebSec:Button({
+		Name = "Test Webhook",
+		Callback = function()
+			sendRaceWebhook({
+				place = "#1",
+				time = "02:18.244",
+				base = "8,750",
+				bonus = "3,937",
+				double = "12,687",
+				vip = "6,343",
+				total = "25,374",
+			})
+		end,
+	})
+	WebSec:Button({
+		Name = "Reset Session Total",
+		Callback = function()
+			automationState.sessionTotalMoney = 0
+		end,
+	})
+
 	Window:Category("Farm")
 	local Farm = Window:Page({
 		Name = "Farm",
@@ -1522,6 +1668,90 @@ local function buildLibraryUi()
 		end,
 	})
 
+	Window:Category("Teleport")
+	local TpPage = Window:Page({
+		Name = "Players",
+		Icon = "108839695397679",
+	})
+	local TpSec = TpPage:Section({
+		Name = "Teleport to Player",
+		Side = 1,
+	})
+
+	local playerLabels = {}
+	local playerLabelToName = {}
+	local function updatePlayerList()
+		table.clear(playerLabels)
+		table.clear(playerLabelToName)
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= localPlayer then
+				local label = p.DisplayName .. " (@" .. p.Name .. ")"
+				table.insert(playerLabels, label)
+				playerLabelToName[label] = p.Name
+			end
+		end
+		if #playerLabels == 0 then
+			table.insert(playerLabels, "No other players")
+		end
+	end
+	updatePlayerList()
+
+	local selectedPlayerName = nil
+	local playerDropdown = TpSec:Dropdown({
+		Name = "Select Player",
+		Flag = "KpopSelectPlayer",
+		Default = playerLabels[1] or "",
+		Items = playerLabels,
+		Multi = false,
+		Callback = function(v)
+			if type(v) == "string" then
+				selectedPlayerName = playerLabelToName[v]
+			elseif type(v) == "table" and v[1] then
+				selectedPlayerName = playerLabelToName[v[1]]
+			end
+		end,
+	})
+	TpSec:Button({
+		Name = "Refresh List",
+		Callback = function()
+			updatePlayerList()
+			if playerDropdown and playerDropdown.Update then
+				playerDropdown:Update({ Items = playerLabels })
+			end
+		end,
+	})
+	TpSec:Button({
+		Name = "Teleport",
+		Callback = function()
+			if selectedPlayerName then
+				local targetPlayer = Players:FindFirstChild(selectedPlayerName)
+				if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+					local hrp = localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart")
+					local car, seat = getLocalPlayerVehicleSeat()
+					local targetCFrame = targetPlayer.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -10)
+					if car and seat then
+						car:PivotTo(targetCFrame)
+						seat.AssemblyLinearVelocity = Vector3.zero
+						seat.AssemblyAngularVelocity = Vector3.zero
+					elseif hrp then
+						hrp.CFrame = targetCFrame
+					end
+				end
+			end
+		end,
+	})
+
+	local PhysicsSec = TpPage:Section({
+		Name = "Car Utils",
+		Side = 1,
+	})
+	PhysicsSec:Button({
+		Name = "Instant Brake (X)",
+		Callback = function()
+			instantBrakeCar()
+		end,
+	})
+
 	Library:Notification({
 		Title = "kpop demon",
 		Description = "Home or PageUp toggles menu.",
@@ -1553,6 +1783,8 @@ function KpopDemon.Start()
 	lastTeleportClock = -Config.TeleportCooldownSeconds
 	lastChainTeleportClock = -1e9
 
+	trackRaceResults()
+
 	mainWindow = buildLibraryUi()
 
 	scriptInputConn = UserInputService.InputBegan:Connect(function(input, processed)
@@ -1573,6 +1805,8 @@ function KpopDemon.Start()
 			nudgeSpeedMultiplier(Config.SpeedMultiplierStep)
 		elseif input.KeyCode == Hotkeys.SpeedMultDown then
 			nudgeSpeedMultiplier(-Config.SpeedMultiplierStep)
+		elseif input.KeyCode == Hotkeys.InstantBrake then
+			instantBrakeCar()
 		end
 	end)
 
